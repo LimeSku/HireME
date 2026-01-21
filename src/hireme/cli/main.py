@@ -3,49 +3,48 @@
 Provides command-line interfaces for job extraction and resume generation.
 """
 
-# from pathlib import Path
-from typing import Literal
+import logging
 
 import logfire
+import structlog
 import typer
 
-# from hireme.cli.commands.resume_agent_cli_typer import generate,
 import hireme.cli.commands.resume_agent_cli as resume_cli
-from hireme.cli.commands.job_agent_cli import run_agent
+from hireme.cli.commands.job_agent_cli import app as job_cli
+
+logfire.configure()
+logfire.instrument_pydantic_ai()
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        structlog.processors.CallsiteParameterAdder(
+            {
+                structlog.processors.CallsiteParameter.FUNC_NAME,
+            }
+        ),
+        structlog.dev.ConsoleRenderer(),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(logging.NOTSET),
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+    cache_logger_on_first_use=False,
+)
+logger = structlog.get_logger(logger_name=__name__)
+logger.debug("Structlog configured for HireME CLI.")
+
 
 app = typer.Typer(name="hireme_cli", help="HireME CLI - Job and Resume Agents")
 app.add_typer(resume_cli.app, name="resume")
-
-
-@app.command("job")
-def job_agent(
-    job: str = typer.Argument(..., help="Job title or keywords to search for."),
-    max_results_per_source: int = typer.Option(
-        1, help="Maximum number of job results to fetch per source."
-    ),
-    location: str = typer.Option(..., help="Location to look for jobs in."),
-    mode: Literal["testing", "scrapper"] = typer.Option(
-        "scrapper",
-        help="Mode of operation: 'testing' uses a sample job posting, 'scrapper' fetches from a URL.",
-    ),
-    export_path: str | None = typer.Option(
-        None, help="Optional path to export extracted job data as JSON."
-    ),
-):
-    """CLI for the Job Extraction Agent."""
-    run_agent(
-        job=job,
-        max_results_per_source=max_results_per_source,
-        location=location,
-        mode=mode,
-        export_path=export_path,
-    )
+app.add_typer(job_cli, name="job")
 
 
 def main() -> None:
     """CLI for the HireME application."""
-    logfire.configure()
-    logfire.instrument_pydantic_ai()
+
     app()
 
 

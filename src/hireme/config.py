@@ -46,6 +46,21 @@ class OpenAIConfig(BaseSettings):
     )
 
 
+# class AgentModelsConfig(BaseSettings):
+#     """Configuration for models used by different agents."""
+
+#     job_offer_model: str = Field(
+#         default="qwen2.5:7b-instruct",
+#         description="Model used for job offer extraction.",
+#         alias="JOB_OFFER_MODEL",
+#     )
+#     resume_model: str = Field(
+#         default="qwen2.5:7b-instruct",
+#         description="Model used for resume generation.",
+#         alias="RESUME_MODEL",
+#     )
+
+
 # =============================================================================
 # Main Application Config
 # =============================================================================
@@ -87,6 +102,7 @@ class Config(BaseSettings):
         default_factory=OllamaConfig,
         description="Configuration for Ollama API.",
     )
+
     openai: Optional[OpenAIConfig] = Field(
         default=None,
         description="Configuration for OpenAI API.",
