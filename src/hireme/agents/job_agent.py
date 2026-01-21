@@ -5,6 +5,7 @@ to help users prepare quality applications.
 """
 
 from enum import Enum
+from pathlib import Path
 from typing import Literal
 
 import structlog
@@ -13,13 +14,17 @@ from pydantic_ai import Agent
 
 from hireme.scrapping.offers_finder import get_job_urls
 from hireme.scrapping.offers_parser import get_job_page
-from hireme.utils.providers import ollama_model
 
-logger = structlog.get_logger(agent="job_extractor_agent")
+# from hireme.utils.providers import ollama_model
+from hireme.utils.providers import get_llm_model
+
+logger = structlog.get_logger(logger_name=__name__)
 
 # =============================================================================
 # Enums for structured fields
 # =============================================================================
+
+URL_PREVIEW = 50
 
 
 class ContractType(str, Enum):
@@ -103,7 +108,7 @@ class JobDetails(BaseModel):
     work_mode: WorkMode = Field(WorkMode.UNKNOWN)
 
     # Contract details
-    contract_type: ContractType = Field(ContractType.UNKNOWN)
+    contract_type: list[ContractType] = Field([ContractType.UNKNOWN])
     experience_level: ExperienceLevel = Field(ExperienceLevel.UNKNOWN)
     start_date: str | None = Field(None, description="Expected start date or 'ASAP'")
 
@@ -154,7 +159,7 @@ class ExtractionFailed(BaseModel):
 
 
 job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] = Agent(
-    model=ollama_model,
+    model=get_llm_model("mistral-nemo:12b"),
     # model="llama3",
     output_type=JobDetails | ExtractionFailed,
     retries=3,
@@ -230,7 +235,15 @@ async def extract_job(text: str) -> JobDetails | ExtractionFailed:
     result = await job_extraction_agent.run(
         f"Extract job details from this posting:\n\n{text}"
     )
-    logger.info("Job extraction completed", output=result.output, usage=result.usage())
+    if isinstance(result.output, ExtractionFailed):
+        logger.error("Job extraction failed", reason=result.output.reason)
+    else:
+        logger.info(
+            "Job extraction completed",
+            job_company=result.output.company.name,
+            job_title=result.output.title,
+            usage=result.usage(),
+        )
     return result.output
 
 
@@ -247,17 +260,16 @@ def extract_job_sync(text: str) -> JobDetails | ExtractionFailed:
 
 
 async def main_extraction(
-    job_offers: list[str],
+    job_offers: list[dict[str, str]],
     query: str = "Data analyst",
     location: str = "Lille, France",
-    max_results_per_source: int = 1,
-    export_path: str | None = None,
+    export_dir: Path | None = None,
 ) -> list[JobDetails | ExtractionFailed]:
     """Extract job offers characteristics using LLM, given a list of job postings.
 
     Parameters
     ----------
-    job_offers : list[str]
+    job_offers : list[dict[str, str]]
         list of raw job posting contents
     query : str, optional
         job type to seek, by default "Data analyst"
@@ -265,43 +277,56 @@ async def main_extraction(
         job location wished, by default "Lille, France"
     max_results_per_source : int, optional
         maximum number of results to extract per source, by default 1
-    export_path : str | None, optional
-        optional path to export results as JSON, by default None
+    export_dir : Path | None, optional
+        optional path to export results as text and JSON, by default does not save
     """
+    from hireme.utils.common import write_job_offer_to_json
+
     logger.info(
         "Starting job extraction",
         query=query,
         location=location,
-        max_results_per_source=max_results_per_source,
     )
     results: list[JobDetails | ExtractionFailed] = []
+
+    raw_export_dir: Path = Path()
+    processed_export_dir: Path = Path()
+
+    if export_dir:
+        raw_export_dir = export_dir / "raw"
+        processed_export_dir = export_dir / "processed"
+
+        if not processed_export_dir.exists():
+            processed_export_dir.mkdir(parents=True, exist_ok=True)
+        if not raw_export_dir.exists():
+            raw_export_dir.mkdir(parents=True, exist_ok=True)
+
     for i, posting in enumerate(job_offers):
-        logger.info("Processing job posting", index=i + 1, total=len(job_offers))
-        result = await extract_job(posting)
-        if isinstance(result, ExtractionFailed):
-            logger.error("Extraction failed", reason=result.reason)
-        else:
-            logger.info(
-                "Extraction succeeded",
-                job_title=result.title,
-                company=result.company.name,
-            )
-            print(result.model_dump_json(indent=2))
+        url = posting.get("url", "unknown")
+        content = posting["content"]
+
+        logger.debug(
+            "Processing offer",
+            preview_url=url[:URL_PREVIEW],
+            index=i + 1,
+            total=len(job_offers),
+        )
+        result = await extract_job(content)
+
+        if isinstance(result, JobDetails):
+            if export_dir:
+                job_json_path = write_job_offer_to_json(
+                    url, result.model_dump(), processed_export_dir
+                )
+                raw_filename = f"job_{result.model_dump().get('title', 'unknown')}-{result.model_dump().get('company', {}).get('name', 'unknown')}.txt"
+                with (export_dir / "raw" / raw_filename).open(
+                    "w", encoding="utf-8"
+                ) as f:
+                    f.write(content)
+                logger.debug("Job offer saved", path=job_json_path)
+            # print(result.model_dump_json(indent=2))
         results.append(result)
 
-    # optionally export results as json to the given path
-    if export_path:
-        import json
-
-        logger.info("Exporting extracted job data", path=export_path)
-        with open(export_path, "w", encoding="utf-8") as f:
-            json.dump(
-                [r.model_dump() for r in results],
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        logger.info("Export completed", path=export_path)
     return results
 
 
@@ -310,7 +335,7 @@ async def main(
     location: str = "Lille, France",
     max_results_per_source: int = 1,
     mode: Literal["scrapper", "testing"] = "scrapper",
-    export_path: str | None = None,
+    export_dir: Path | None = None,
 ):
     """Test the job extraction agent with a sample posting.
     Deprecated - use the CLI instead
@@ -320,11 +345,11 @@ async def main(
 
     console = Console()
     console.print(Panel(f"Job Extraction Agent - Mode: {mode}", style="bold blue"))
-    job_offers: list[str] = []
+    job_offers: list[dict[str, str]] = []  # list of dict with 'url' and 'content' keys
 
     if mode == "testing":
         console.print(Panel("Using sample job posting for extraction.", style="yellow"))
-        job_offers = [SAMPLE_POSTING]
+        job_offers = [{"url": "sample_url", "content": SAMPLE_POSTING}]
 
     elif mode == "scrapper":
         console.print(Panel("Extracting job from live job postings.", style="yellow"))
@@ -333,21 +358,34 @@ async def main(
         )
 
         console.print(f"Found {len(job_urls)} job URLs to process.")
+
         for i, url in enumerate(job_urls):
-            logger.info(
-                "Fetching content from URL", url=url, index=i + 1, total=len(job_urls)
+            logger.debug(
+                "Fetching offer content from URL",
+                preview_url=url[:URL_PREVIEW],
+                index=i + 1,
             )
+
             job_posting = get_job_page(url)
+
             if job_posting is None:
-                logger.error("Failed to fetch job page", url=url)
+                logger.error(
+                    "Failed to fetch offer content",
+                    preview_url=url[:URL_PREVIEW],
+                    index=i + 1,
+                )
                 continue
-            job_offers.append(job_posting)
-            logger.info("Job page fetched successfully", url=url)
+
+            job_offers.append({"url": url, "content": job_posting})
+            logger.debug(
+                "Job offer fetched successfully",
+                preview_url=url[:URL_PREVIEW],
+                index=i + 1,
+            )
 
     await main_extraction(
         job_offers=job_offers,
-        query="Data analyst",
-        location="Lille, France",
-        max_results_per_source=1,
-        export_path=export_path,
+        query=query,
+        location=location,
+        export_dir=export_dir,
     )

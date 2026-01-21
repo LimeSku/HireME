@@ -14,7 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from hireme.scrapping.common import create_driver
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(logger_name=__name__)
 
 
 def clean_html_text(text: str) -> str:

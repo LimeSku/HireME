@@ -22,7 +22,7 @@ from hireme.utils.common import load_user_context_from_directory
 from hireme.utils.models import UserContext
 from hireme.utils.providers import get_llm_model
 
-logger = structlog.get_logger(agent="resume_agent")
+logger = structlog.get_logger(logger_name=__name__)
 
 # =============================================================================
 # Path Constants (from config)
@@ -139,8 +139,7 @@ class ResumeAgentDeps(BaseModel):
 # =============================================================================
 
 resume_agent: Agent[ResumeAgentDeps, TailoredResume] = Agent(
-    # model=get_llm_model("qwen3:8b"),
-    model=get_llm_model("qwen2.5:7b-instruct"),
+    model=get_llm_model("mistral-nemo:12b"),
     output_type=TailoredResume,
     retries=3,
     deps_type=ResumeAgentDeps,
@@ -212,7 +211,7 @@ Poste: {job.title}
 Entreprise: {job.company.name} ({job.company.industry or "Industrie inconnue"})
 Lieu: {job.location} ({job.work_mode.value})
 Niveau: {job.experience_level.value}
-Contrat: {job.contract_type.value}
+Contrat: {", ".join([ct.value for ct in job.contract_type]) or "Non spécifié"}
 
 Compétences requises:
 {required_skills_str}
