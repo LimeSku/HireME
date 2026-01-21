@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import structlog
@@ -5,7 +6,7 @@ import yaml
 
 from hireme.utils.models import FileContent, UserContext
 
-logger = structlog.get_logger(context="common")
+logger = structlog.get_logger(logger_name=__name__)
 
 
 # =============================================================================
@@ -171,3 +172,27 @@ def load_user_context_from_directory(
         files=files,
         context_note=context_note,
     )
+
+
+def write_job_offer_to_json(url: str, data: dict, export_dir: Path) -> None:
+    """Export result data to a JSON file.
+
+    Args:
+        url: Source URL of the job offer
+        data: Data to export
+        export_dir: Directory to save the output files
+    """
+    export_dir.mkdir(parents=True, exist_ok=True)
+    export_path = (
+        export_dir
+        / f"{data.get('title')}-{data.get('company', {'name': ''}).get('name', '')}.json"
+    )
+    try:
+        with export_path.open("w", encoding="utf-8") as f:
+            export_data = {"url": url, "data": data}
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+        logger.info("Exported result data", path=str(export_path))
+    except Exception as e:
+        logger.error(
+            "Failed to export result data", path=str(export_path), error=str(e)
+        )
