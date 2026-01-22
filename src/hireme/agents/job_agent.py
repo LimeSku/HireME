@@ -160,7 +160,6 @@ class ExtractionFailed(BaseModel):
 
 job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] = Agent(
     model=get_llm_model("mistral-nemo:12b"),
-    # model="llama3",
     output_type=JobDetails | ExtractionFailed,
     retries=3,
     system_prompt="""You are an expert job posting analyzer. Your task is to extract 

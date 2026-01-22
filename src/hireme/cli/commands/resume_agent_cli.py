@@ -16,10 +16,6 @@ from rich.panel import Panel
 from hireme.agents.job_agent import JobDetails, extract_job
 from hireme.config import cfg
 from hireme.utils.models.resume_models import TailoredResume
-from hireme.utils.rendercv_helpers import (
-    generate_rendercv_input,
-    run_rendercv,
-)
 
 logger = structlog.get_logger()
 
@@ -73,8 +69,8 @@ async def _generate_resume(
     """Async implementation of resume generation."""
 
     from hireme.agents.resume_agent import (
+        generate_resume,
         load_user_context_from_directory,
-        tailor_resume_from_context,
     )
 
     console = Console()
@@ -129,15 +125,12 @@ async def _generate_resume(
     tailored_resumes: list[TailoredResume] = []
     for i, job_result in enumerate(job_results):
         try:
-            tailored_resume = await tailor_resume_from_context(user_context, job_result)
-
+            tailored_resume, pdf_path = await generate_resume(
+                candidate_profile=user_context,
+                structured_job=job_result,
+                output_dir=output_dir,
+            )
             tailored_resumes.append(tailored_resume)
-            # Step 3: Generate RenderCV YAML
-            resume_output_dir = output_dir / f"resume_{i}/"
-            resume_output_dir.mkdir(parents=True, exist_ok=True)
-            yaml_path = generate_rendercv_input(tailored_resume, resume_output_dir)
-            # Step 4: Run RenderCV to generate PDF
-            pdf_path = run_rendercv(yaml_path, resume_output_dir)
             console.print("[green]✓ Resume generated successfully![/green]")
             console.print(f"[blue]PDF saved to: {pdf_path}[/blue]")
 
