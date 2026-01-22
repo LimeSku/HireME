@@ -4,7 +4,7 @@ from pathlib import Path
 import structlog
 import yaml
 
-from hireme.utils.models import FileContent, UserContext
+from hireme.utils.models.models import FileContent, UserContext
 
 logger = structlog.get_logger(logger_name=__name__)
 
@@ -169,7 +169,7 @@ def load_user_context_from_directory(
         linkedin_username=personal_info.get("linkedin_username", ""),
         github_username=personal_info.get("github_username", ""),
         website=personal_info.get("website", ""),
-        files=files,
+        # files=files,
         context_note=context_note,
     )
 

@@ -5,121 +5,25 @@ to construct tailored resumes for job offers without hallucinating.
 Uses RenderCV for professional PDF generation.
 """
 
-import subprocess
 import tempfile
 from pathlib import Path
 
-import logfire
 import structlog
-import yaml
-from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
+from pydantic import BaseModel
+from pydantic_ai import Agent, ModelRetry
 
 from hireme.agents.job_agent import JobDetails
-from hireme.agents.prompts import RESUME_AGENT_SYSTEM_PROMPT
 from hireme.config import cfg
 from hireme.utils.common import load_user_context_from_directory
-from hireme.utils.models import UserContext
+from hireme.utils.models.models import UserContext
+from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 from hireme.utils.providers import get_llm_model
+from hireme.utils.rendercv_helpers import (
+    generate_rendercv_input,
+    run_rendercv,
+)
 
 logger = structlog.get_logger(logger_name=__name__)
-
-# =============================================================================
-# Path Constants (from config)
-# =============================================================================
-
-RENDERCV_ASSETS_DIR = cfg.assets_dir / "rendercv"
-DESIGN_TEMPLATE_PATH = RENDERCV_ASSETS_DIR / "design.yaml"
-DEFAULT_PROFILE_DIR = cfg.profile_dir
-
-# =============================================================================
-# Tailored Resume Models (Output for RenderCV)
-# =============================================================================
-
-
-class TailoredEducation(BaseModel):
-    """Education entry tailored for specific job."""
-
-    institution: str = Field(..., description="Exact name of institution from context")
-    area: str = Field(..., description="Field of study / Major")
-    degree: str = Field(..., description="Degree type (e.g., Master's, Bachelor's)")
-    location: str = Field(..., description="Location of the institution")
-    start_date: str = Field(..., description="Start date in YYYY-MM format")
-    end_date: str = Field(..., description="End date in YYYY-MM format or 'present'")
-    highlights: list[str] = Field(
-        default_factory=list,
-        description="Highlights from context, rewritten for job relevance",
-    )
-
-
-class TailoredExperience(BaseModel):
-    """Experience entry tailored for specific job."""
-
-    company: str = Field(..., description="Exact company name from context")
-    position: str = Field(..., description="Exact job title from context")
-    location: str = Field(..., description="Work location")
-    start_date: str = Field(..., description="Start date in YYYY-MM format")
-    end_date: str = Field(..., description="End date in YYYY-MM format or 'present'")
-    highlights: list[str] = Field(
-        description="3-5 bullet points from context, emphasizing job-relevant skills. "
-        "Use action verbs and quantify achievements where possible."
-    )
-
-
-class TailoredProject(BaseModel):
-    """Project entry tailored for specific job."""
-
-    name: str = Field(..., description="Exact project name from context")
-    start_date: str = Field(..., description="Start date in YYYY-MM format")
-    end_date: str = Field(..., description="End date in YYYY-MM format or 'present'")
-    summary: str | None = Field(default=None, description="Brief project description")
-    highlights: list[str] = Field(
-        description="Highlights emphasizing technologies and skills relevant to the job"
-    )
-
-
-class TailoredSkill(BaseModel):
-    """Skill entry tailored for specific job."""
-
-    label: str = Field(..., description="Skill category")
-    details: str = Field(
-        description="Skills from context, reordered to prioritize job-relevant ones"
-    )
-
-
-class TailoredResume(BaseModel):
-    """Complete tailored resume ready for RenderCV rendering."""
-
-    # Personal info
-    name: str
-    email: str
-    phone: str | None = None
-    location: str
-    linkedin_username: str | None = None
-    github_username: str | None = None
-
-    # Tailored sections
-    education: list[TailoredEducation] = Field(
-        description="Education entries from context, tailored to job requirements"
-    )
-    experience: list[TailoredExperience] = Field(
-        description="Experience entries from context, rewritten for relevance. "
-        "Order by relevance, not just recency."
-    )
-    projects: list[TailoredProject] = Field(
-        description="Most relevant projects from context (max 3-4). "
-        "Emphasize matching technologies."
-    )
-    skills: list[TailoredSkill] = Field(
-        description="Skills from context, reorganized for job relevance"
-    )
-
-    # Optional tailored summary
-    professional_summary: str | None = Field(
-        None,
-        description="2-3 sentence professional summary tailored to this specific role. "
-        "Based ONLY on information from the context files.",
-    )
 
 
 # =============================================================================
@@ -138,244 +42,48 @@ class ResumeAgentDeps(BaseModel):
 # Resume Agent Definition
 # =============================================================================
 
-resume_agent: Agent[ResumeAgentDeps, TailoredResume] = Agent(
+# resume_agent: Agent[ResumeAgentDeps, TailoredResume] = Agent(
+resume_agent: Agent[None, TailoredResume | GenerationFailed] = Agent(
     model=get_llm_model("mistral-nemo:12b"),
-    output_type=TailoredResume,
+    output_type=TailoredResume | GenerationFailed,
     retries=3,
-    deps_type=ResumeAgentDeps,
-    system_prompt=RESUME_AGENT_SYSTEM_PROMPT,
+    system_prompt="""
+You are an expert resume writer specializing in tailoring CVs to specific job postings.
+
+Your task is to create a professional, ATS-friendly resume that highlights the candidate's 
+most relevant qualifications for the target position.
+
+CRITICAL RULES:
+- Use ONLY information from the provided user context - NEVER hallucinate or invent details
+- Copy EXACTLY: company names, institutions, job titles, dates, and locations from context
+- Rewrite bullet points to emphasize skills and achievements relevant to the job posting
+- Incorporate keywords from the job description naturally in your reformulations
+- Prioritize and reorder sections based on relevance to the target role
+- Date format must be "YYYY-MM" or "present" (lowercase)
+- If information is missing from context, OMIT it rather than making it up
+
+GUIDELINES:
+- Quantify achievements with metrics when available in context
+- Use strong action verbs (Led, Developed, Implemented, Achieved, etc.)
+- Tailor the professional summary to match the specific role
+- Highlight technical skills that match the job requirements
+- Keep descriptions concise and impactful (3-5 bullet points per role)
+- Ensure the resume passes ATS systems by using relevant keywords
+- Order experiences and projects by relevance, not just chronologically
+
+Return the structured, tailored resume ready for rendering.
+""",
 )
 
 
-@resume_agent.system_prompt
-async def add_context_from_files(ctx: RunContext[ResumeAgentDeps]) -> str:
-    """Inject all user context from files into the system prompt."""
-    user = ctx.deps.user_context
-    job = ctx.deps.job
-
-    logger.debug(
-        "Injecting user & job context into resume_agent",
-        name=user.name,
-        job=job.title,
-        num_files=len(user.files),
-    )
-
-    # Build file contents section
-    files_section = ""
-    for f in user.files:
-        files_section += f"""
---- FICHIER: {f.filename} ({f.file_type}) ---
-{f.content}
-"""
-
-    # Build job requirements section
-    required_skills_str = (
-        "\n".join([f"  - {s.name} ({s.level})" for s in job.required_skills])
-        or "  - Non spécifié"
-    )
-
-    responsibilities_str = (
-        "\n".join([f"  - {r}" for r in job.responsibilities[:5]]) or "  - Non spécifié"
-    )
-
-    selling_points_str = (
-        "\n".join([f"  - {p}" for p in job.key_selling_points[:3]])
-        or "  - Non spécifié"
-    )
-
-    full_context = f"""
-
-================================================================================
-TOUS LES FICHIERS DE CONTEXTE
-================================================================================
-{files_section}
-
-================================================================================
-OFFRE D'EMPLOI CIBLE
-================================================================================
-Poste: {job.title}
-Entreprise: {job.company.name} ({job.company.industry or "Industrie inconnue"})
-Lieu: {job.location} ({job.work_mode.value})
-Niveau: {job.experience_level.value}
-Contrat: {", ".join([ct.value for ct in job.contract_type]) or "Non spécifié"}
-
-Compétences requises:
-{required_skills_str}
-
-Langues requises:
-{chr(10).join(f"  - {lang}" for lang in job.required_languages) or "  - Non spécifié"}
-
-Responsabilités:
-{responsibilities_str}
-
-Points à valoriser:
-{selling_points_str}
-
-Formation requise: {job.required_education or "Non spécifié"}
-================================================================================
-
-RAPPEL: Génère le CV en utilisant UNIQUEMENT les informations ci-dessus.
-Ne jamais inventer de contenu non présent dans les fichiers de contexte.
-"""
-    return full_context
-
-
-# =============================================================================
-# Resume Generation Functions
-# =============================================================================
-
-
-def normalize_date(date_str: str) -> str:
-    """Normalize date strings for RenderCV compatibility."""
-    if not date_str:
-        return ""
-    if date_str.lower() in ("present", "current", "now", "ongoing", "aujourd'hui"):
-        return "present"
-    return str(date_str)
-
-
-def convert_to_rendercv_yaml(resume: TailoredResume) -> dict:
-    """Convert TailoredResume to RenderCV YAML structure."""
-    social_networks = []
-    if resume.linkedin_username:
-        social_networks.append(
-            {"network": "LinkedIn", "username": resume.linkedin_username}
-        )
-    if resume.github_username:
-        social_networks.append(
-            {"network": "GitHub", "username": resume.github_username}
-        )
-
-    sections = {}
-
-    if resume.professional_summary:
-        sections["summary"] = [resume.professional_summary]
-
-    if resume.education:
-        sections["education"] = [
-            {
-                "institution": edu.institution,
-                "area": edu.area,
-                "degree": edu.degree,
-                "location": edu.location,
-                "start_date": normalize_date(edu.start_date),
-                "end_date": normalize_date(edu.end_date),
-                "highlights": edu.highlights,
-            }
-            for edu in resume.education
-        ]
-
-    if resume.experience:
-        sections["experience"] = [
-            {
-                "company": exp.company,
-                "position": exp.position,
-                "location": exp.location,
-                "start_date": normalize_date(exp.start_date),
-                "end_date": normalize_date(exp.end_date),
-                "highlights": exp.highlights,
-            }
-            for exp in resume.experience
-        ]
-
-    if resume.projects:
-        sections["projects"] = [
-            {
-                "name": proj.name,
-                "start_date": normalize_date(proj.start_date),
-                "end_date": normalize_date(proj.end_date),
-                **({"summary": proj.summary} if proj.summary else {}),
-                "highlights": proj.highlights,
-            }
-            for proj in resume.projects
-        ]
-
-    if resume.skills:
-        sections["skills"] = [
-            {"label": skill.label, "details": skill.details} for skill in resume.skills
-        ]
-
-    cv_data = {
-        "cv": {
-            "name": resume.name,
-            "location": resume.location,
-            "email": resume.email,
-            **({"phone": resume.phone} if resume.phone else {}),
-            **({"social_networks": social_networks} if social_networks else {}),
-            "sections": sections,
-        }
-    }
-
-    return cv_data
-
-
-def load_design_template() -> dict:
-    """Load the design template from the assets directory."""
-    with open(DESIGN_TEMPLATE_PATH, "r") as f:
-        design_data = yaml.safe_load(f)
-    logger.info("Loaded RenderCV design template", path=str(DESIGN_TEMPLATE_PATH))
-    return design_data or {}
-
-
-def generate_rendercv_input(resume: TailoredResume, output_dir: Path) -> Path:
-    """Generate the complete RenderCV input YAML file."""
-    cv_data = convert_to_rendercv_yaml(resume)
-    design_data = load_design_template()
-    complete_data = {**cv_data, **design_data}
-
-    safe_name = resume.name.replace(" ", "_").lower()
-    output_file = output_dir / f"{safe_name}_cv.yaml"
-
-    with open(output_file, "w") as f:
-        yaml.dump(
-            complete_data,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
-
-    logger.info("Generated RenderCV input file", path=str(output_file))
-    return output_file
-
-
-def run_rendercv(yaml_path: Path, output_dir: Path | None = None) -> Path:
-    """Run RenderCV to generate the PDF resume."""
-    if output_dir is None:
-        output_dir = yaml_path.parent
-
-    cmd = [
-        "rendercv",
-        "render",
-        str(yaml_path.absolute()),
-        "--output-folder-name",
-        str(output_dir.absolute()) + "/",
-        "-pdf",
-        str(output_dir.absolute()) + "/" + yaml_path.stem + ".pdf",
-        "-typ",
-        str(output_dir.absolute()) + "/" + yaml_path.stem + ".typ",
-        "-nomd",
-        "-nohtml",
-        "-nopng",
-    ]
-
-    logger.info("Running RenderCV", command=" ".join(cmd))
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        logger.debug("RenderCV stdout", output=result.stdout)
-
-        pdf_files = list((output_dir).glob("*.pdf"))
-        if pdf_files:
-            pdf_path = pdf_files[0]
-            logger.info("Resume PDF generated", path=str(pdf_path))
-            return pdf_path
-        else:
-            raise FileNotFoundError("RenderCV did not generate a PDF file")
-
-    except subprocess.CalledProcessError as e:
-        logger.error("RenderCV failed", stderr=e.stderr, stdout=e.stdout)
-        raise RuntimeError(f"RenderCV failed: {e.stderr}") from e
+@resume_agent.output_validator
+async def validate_resume(
+    output: TailoredResume | GenerationFailed,
+) -> TailoredResume | GenerationFailed:
+    if isinstance(output, GenerationFailed):
+        raise ModelRetry(f"Generation failed: {output.reason}")
+    else:
+        return output
 
 
 # =============================================================================
@@ -390,29 +98,34 @@ async def tailor_resume_from_context(
     """Tailor a resume from user context files for a specific job.
 
     Args:
-        user_context: User context loaded from directory
+        user_context: User informations
         job: Structured job details from the job extractor
 
     Returns:
-        A tailored resume based on context files
+        Structured TailoredResume based on given information
     """
-    context = ResumeAgentDeps(user_context=user_context, job=job)
+    # context = ResumeAgentDeps(user_context=user_context, job=job)
 
     result = await resume_agent.run(
-        """Génère le CV adapté à partir des fichiers de contexte et de l'offre d'emploi.
+        f"""
+Generate a tailored resume based on the following user context and job posting:\n\n
+Contexte utilisateur:
+```json
+{user_context.model_dump_json(indent=2)}
+```
 
-RAPPEL CRITIQUE:
-- Utilise UNIQUEMENT les informations présentes dans les fichiers de contexte
-- Copie EXACTEMENT: noms d'entreprises, écoles, postes, dates, lieux
-- Reformule les descriptions pour mettre en avant les compétences pertinentes
-- Utilise les mots-clés de l'offre dans les reformulations
-- Format des dates: "YYYY-MM" ou "present" (minuscule)
-- Si une information manque, OMETS-LA plutôt que de l'inventer
+Offre d'emploi cible:
+```json
+{job.model_dump_json(indent=2)}
+```
 
-Retourne le CV structuré.""",
-        deps=context,
+""",
+        # deps=context,
     )
 
+    if isinstance(result.output, GenerationFailed):
+        logger.warning("Resume generation failed", reason=result.output.reason)
+        raise RuntimeError(f"Resume generation failed: {result.output.reason}")
     logger.info("Resume tailoring completed", usage=result.usage())
     return result.output
 
@@ -519,7 +232,7 @@ async def main():
     job_posting = job_file.read_text()
 
     # Load user context from profile directory
-    profile_dir = DEFAULT_PROFILE_DIR
+    profile_dir = cfg.profile_dir
     if not profile_dir.exists():
         console.print(f"[yellow]Profile directory not found: {profile_dir}[/yellow]")
         console.print("[yellow]Creating example profile directory...[/yellow]")
@@ -577,9 +290,9 @@ async def main():
 
     console.print(Panel(f"Loading user context from: {profile_dir}", style="blue"))
     user_context = load_user_context_from_directory(profile_dir)
-    console.print(
-        f"[green]Loaded {len(user_context.files)} files for: {user_context.name or 'Unknown'}[/green]"
-    )
+    # console.print(
+    #     f"[green]Loaded {len(user_context.files)} files for: {user_context.name or 'Unknown'}[/green]"
+    # )
 
     # Extract job details
     console.print(Panel("Extracting job details from posting...", style="blue"))

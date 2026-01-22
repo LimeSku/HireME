@@ -15,6 +15,11 @@ from rich.panel import Panel
 
 from hireme.agents.job_agent import JobDetails, extract_job
 from hireme.config import cfg
+from hireme.utils.models.resume_models import TailoredResume
+from hireme.utils.rendercv_helpers import (
+    generate_rendercv_input,
+    run_rendercv,
+)
 
 logger = structlog.get_logger()
 
@@ -68,10 +73,7 @@ async def _generate_resume(
     """Async implementation of resume generation."""
 
     from hireme.agents.resume_agent import (
-        TailoredResume,
-        generate_rendercv_input,
         load_user_context_from_directory,
-        run_rendercv,
         tailor_resume_from_context,
     )
 
@@ -128,6 +130,7 @@ async def _generate_resume(
     for i, job_result in enumerate(job_results):
         try:
             tailored_resume = await tailor_resume_from_context(user_context, job_result)
+
             tailored_resumes.append(tailored_resume)
             # Step 3: Generate RenderCV YAML
             resume_output_dir = output_dir / f"resume_{i}/"
@@ -140,6 +143,7 @@ async def _generate_resume(
 
         except Exception as e:
             console.print(f"[red]Error generating PDF: {e}[/red]")
+            logger.error("Error generating PDF", error=e)
 
 
 async def process_raw_jobs(

@@ -26,9 +26,9 @@ class UserContext(BaseModel):
     website: str | None = Field(default=None, description="Personal website URL")
 
     # Raw file contents for context
-    files: list[FileContent] = Field(
-        default_factory=list, description="All loaded file contents"
-    )
+    # files: list[FileContent] = Field(
+    #     default_factory=list, description="All loaded file contents"
+    # )
 
     # Structured context note (main source of truth)
     context_note: str = Field(

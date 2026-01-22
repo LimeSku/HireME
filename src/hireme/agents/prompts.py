@@ -135,3 +135,39 @@ ANTI-HALLUCINATION:
 - Si tu n'as pas assez d'informations pour une section, laisse-la vide ou minimale
 - Préfère l'omission à l'invention
 - En cas de doute, cite directement le contexte"""
+
+
+RESUME_TAILORING_PROMPT_TEMPLATE = """Tu es un expert en rédaction de CV. Adapte le CV du candidat pour correspondre parfaitement à l'offre d'emploi.
+================================================================================
+TOUS LES FICHIERS DE CONTEXTE
+================================================================================
+{files_section}
+
+================================================================================
+OFFRE D'EMPLOI CIBLE
+================================================================================
+Poste: {job.title}
+Entreprise: {job.company.name} ({job.company.industry or "Industrie inconnue"})
+Lieu: {job.location} ({job.work_mode.value})
+Niveau: {job.experience_level.value}
+Contrat: {{", ".join([ct.value for ct in job.contract_type]) or "Non spécifié"}}
+
+Compétences requises:
+
+{required_skills_str}
+
+Langues requises:
+{{chr(10).join(f"  - {lang}" for lang in job.required_languages) or "  - Non spécifié"}}
+
+Responsabilités:
+{responsibilities_str}
+
+Points à valoriser:
+{selling_points_str}
+
+Formation requise: {{job.required_education or "Non spécifié"}}
+================================================================================
+
+RAPPEL: Génère le CV en utilisant UNIQUEMENT les informations ci-dessus.
+Ne jamais inventer de contenu non présent dans les fichiers de contexte.
+"""
