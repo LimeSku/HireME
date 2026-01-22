@@ -92,7 +92,7 @@ class Config(BaseSettings):
     """Main application configuration."""
 
     model_config = SettingsConfigDict(
-        env_prefix="CLIME_",
+        env_prefix="HIREME_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -134,17 +134,7 @@ class Config(BaseSettings):
         ),
         description="Directory to store user profile data.",
     )
-    # @computed_field
-    # @property
-    # def profile_dir(self) -> Path:
-    #     dir_path = self.hireme_dir / Path("profile")
-    #     dir_path.mkdir(parents=True, exist_ok=True)
-    #     return dir_path
 
 
 # Global config instance
 cfg = Config()
-# Example usage:
-# print(cfg)
-# print(cfg.openai.api_key if cfg.openai else "No OpenAI config")
-# print(cfg.log_level)

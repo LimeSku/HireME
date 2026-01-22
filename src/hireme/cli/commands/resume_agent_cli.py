@@ -4,14 +4,16 @@ Generates tailored resumes for job postings using directory-based context loadin
 Supports both the new directory-based approach and legacy template-based approach.
 """
 
+import json
 from pathlib import Path
 from typing import Annotated
 
-import click
 import structlog
 import typer
+from rich.console import Console
+from rich.panel import Panel
 
-from hireme.agents.resume_agent import TailoredResume
+from hireme.agents.job_agent import JobDetails, extract_job
 from hireme.config import cfg
 
 logger = structlog.get_logger()
@@ -22,11 +24,11 @@ app = typer.Typer(name="resume_agent", help="Resume Generation Agent CLI")
 @app.command("generate")
 def generate(
     job_dir: Annotated[
-        Path | None, typer.Option(help="Directory containing job posting files.")
-    ] = None,
+        Path, typer.Option(help="Directory containing job posting files.")
+    ] = cfg.job_offers_dir,
     profile_dir: Annotated[
-        Path | None, typer.Option(help="Directory containing profile files.")
-    ] = None,
+        Path, typer.Option(help="Directory containing profile files.")
+    ] = cfg.profile_dir,
     output_dir: Annotated[
         Path, typer.Option(help="Directory to save the generated resume files.")
     ] = Path("output/"),
@@ -58,20 +60,15 @@ def generate(
 
 
 async def _generate_resume(
-    job_dir: Path | None,
-    profile_dir: Path | None,
+    job_dir: Path,
+    profile_dir: Path,
     output_dir: Path,
     parse_job: bool = False,
-    # no_pdf: bool,
 ):
     """Async implementation of resume generation."""
-    from rich import print as rprint
-    from rich.console import Console
-    from rich.panel import Panel
 
-    from hireme.agents.job_agent import JobDetails, extract_job
     from hireme.agents.resume_agent import (
-        DEFAULT_PROFILE_DIR,
+        TailoredResume,
         generate_rendercv_input,
         load_user_context_from_directory,
         run_rendercv,
@@ -79,97 +76,53 @@ async def _generate_resume(
     )
 
     console = Console()
-
     # Determine job file path
-    if job_dir is None:
-        job_dir = cfg.job_offers_dir
-
     if not job_dir.exists():
-        console.print(f"[red]Error: Job directory not found: {job_dir}[/red]")
-        console.print("creating defaults...")
-        console.print(f"[blue]Creating job offers directory at: {job_dir}[/blue]")
-        cfg.job_offers_dir  # Accessing property to create directories
-        raise click.Abort()
+        console.print(
+            f"[yellow]Warning: Job directory not found: {job_dir}. "
+            "Using default job offers directory.[/yellow]"
+        )
+        job_dir = cfg.job_offers_dir  # Accessing property to create directories
 
-    if parse_job:
-        job_dir = job_dir / "raw"
-    else:
-        job_dir = job_dir / "processed"
-    if not any(job_dir.glob("*.txt")) and not any(job_dir.glob("*.json")):
+    if not any(job_dir.rglob("*.txt")) and not any(job_dir.rglob("*.json")):
         console.print(f"[red]Error: No job posting files found in: {job_dir}[/red]")
-        raise click.Abort()
-
-    # Determine profile directory
-    if profile_dir is None:
-        profile_dir = DEFAULT_PROFILE_DIR
+        return
 
     if not profile_dir.exists():
-        console.print(f"[red]Error: Profile directory not found: {profile_dir}[/red]")
         console.print(
-            "[yellow]Create a 'profile' directory with your context files:[/yellow]"
+            f"[yellow]Warning: Profile directory not found: {profile_dir}. "
+            "Using default profile directory.[/yellow]"
         )
-        console.print("  - context.md: Main context note with your background")
-        console.print("  - profile.yaml: Structured personal info (optional)")
-        console.print("  - *.pdf: Your existing resumes or documents")
-        console.print("  - *.md/*.txt: Additional notes")
-        raise click.Abort()
-
+        profile_dir = cfg.profile_dir  # Accessing property to create directories
+        if not any(profile_dir.rglob("*")):
+            console.print(
+                f"[yellow]Profile directory is empty: {profile_dir}."
+                " Initializing with example files...[/yellow]"
+            )
+            init(profile_dir=profile_dir)  # populate with example files
+        return
     # Load user context from directory
     console.print(Panel(f"Loading user context from: {profile_dir}", style="blue"))
     user_context = load_user_context_from_directory(profile_dir)
-    console.print(
-        f"[green]Loaded {len(user_context.files)} files for: "
-        f"{user_context.name or 'Unknown'}[/green]"
-    )
 
     # Extract job details
     job_results: list[JobDetails] = []
     if parse_job:
+        job_dir = job_dir / "raw"
         logger.debug("Loading raw job files from", job_dir=job_dir)
-        console.print(Panel("Extracting job details from posting...", style="blue"))
-        for job_file in job_dir.glob("*.txt"):
-            console.print(f"[blue]Processing job file: {job_file}[/blue]")
-            job_text = job_file.read_text()
-            job_result = await extract_job(job_text)
-            if not isinstance(job_result, JobDetails):
-                console.print(f"[red]Job extraction failed: {job_result.reason}[/red]")
-                continue
-            job_results.append(job_result)
-            console.print(
-                f"[green]Extracted job: {job_result.title} at {job_result.company.name}[/green]"
-            )
+        job_results = await process_raw_jobs(console, job_dir)
     else:
-        import json
-
+        job_dir = job_dir / "processed"
         logger.debug("Loading processed job files from", job_dir=job_dir)
-        for job_file in job_dir.glob("*.json"):
-            console.print(f"[blue]Loading already parsed job file: {job_file}[/blue]")
-            job_json_list = None
-            with job_file.open() as f:
-                job_json_list = json.load(f)
-            for job_text in job_json_list:
-                logger.debug(
-                    "Loaded job as json from file",
-                    file_path=job_file.as_posix(),
-                    job_text=job_text.get("data", ""),
-                )
-                job_details = JobDetails.model_validate(job_text.get("data", "{}"))
-                logger.debug(
-                    "Loaded JobDetails Object",
-                    file_path=job_file.as_posix(),
-                    job_json=job_details,
-                )
-                job_results.append(job_details)
-                console.print(
-                    f"[green]Loaded job: {job_details.title} at {job_details.company.name}[/green]"
-                )
+        job_results = process_parsed_jobs(job_dir)
 
-    # Create output directory
-    output_dir = Path(output_dir)
+    # check/create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate resume
-    console.print(Panel("Generating tailored resume...", style="blue"))
+    console.print(
+        Panel(f"Generating {len(job_results)} tailored resumes...", style="blue")
+    )
 
     tailored_resumes: list[TailoredResume] = []
     for i, job_result in enumerate(job_results):
@@ -189,6 +142,62 @@ async def _generate_resume(
             console.print(f"[red]Error generating PDF: {e}[/red]")
 
 
+async def process_raw_jobs(
+    console: Console,
+    job_dir: Annotated[
+        Path, typer.Option(help="Directory containing job posting files.")
+    ],
+) -> list[JobDetails]:
+    """Parse job postings to extract structured job details.
+
+    Reads raw job posting text files from the specified directory
+    and extracts structured job details into JSON files.
+    """
+    logger.debug("Loading raw job files from", job_dir=job_dir)
+    console.print(Panel("Extracting job details from posting...", style="blue"))
+    job_results: list[JobDetails] = []
+    for job_file in job_dir.glob("*.txt"):
+        console.print(f"[blue]Processing job file: {job_file}[/blue]")
+        job_text = job_file.read_text()
+        job_result = await extract_job(job_text)
+        if not isinstance(job_result, JobDetails):
+            console.print(f"[red]Job extraction failed: {job_result.reason}[/red]")
+            continue
+        job_results.append(job_result)
+
+    return job_results
+
+
+def process_parsed_jobs(
+    job_dir: Annotated[
+        Path, typer.Option(help="Directory containing job posting files.")
+    ],
+) -> list[JobDetails]:
+    """Load already parsed job postings from JSON files.
+
+    Reads processed job posting JSON files from the specified directory
+    and loads structured job details.
+    """
+    job_results: list[JobDetails] = []
+    console = Console()
+    logger.debug("Loading processed job files from", job_dir=job_dir)
+    for job_file in job_dir.glob("*.json"):
+        console.print(f"[blue]Loading already parsed job file: {job_file}[/blue]")
+        job_json_list = None
+        with job_file.open() as f:
+            job_json_list = json.load(f)
+        if not isinstance(job_json_list, dict):
+            console.print(f"[red]TODO: Implement list parsing: {job_file}[/red]")
+            continue
+        job_text = job_json_list
+        job_details = JobDetails.model_validate(job_text.get("data", "{}"))
+        job_results.append(job_details)
+        console.print(
+            f"[green]Loaded job: {job_details.title} at {job_details.company.name}[/green]"
+        )
+    return job_results
+
+
 @app.command("init")
 def init(
     profile_dir: Annotated[
@@ -199,12 +208,10 @@ def init(
     from rich.console import Console
     from rich.panel import Panel
 
-    from hireme.agents.resume_agent import DEFAULT_PROFILE_DIR
-
     console = Console()
 
     if profile_dir is None:
-        profile_dir = DEFAULT_PROFILE_DIR
+        profile_dir = cfg.profile_dir  # Accessing property to create directories
 
     if profile_dir.exists() and any(profile_dir.iterdir()):
         console.print(
@@ -218,124 +225,14 @@ def init(
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     # Create example context.md
-    example_context = """# Mon Profil Professionnel
+    example_context = open(cfg.assets_dir / "samples" / "context.md", "r").read()
 
-## Informations Personnelles
-- Nom: [Votre Nom Complet]
-- Email: [votre.email@example.com]
-- Téléphone: [+33 6 XX XX XX XX]
-- Localisation: [Ville, France]
-- LinkedIn: [votre-username]
-- GitHub: [votre-username]
-
-## Formation
-
-### [Diplôme] - [École/Université]
-- Dates: [YYYY-MM] à [YYYY-MM ou present]
-- Lieu: [Ville, France]
-- Points clés:
-  - [Cours pertinent ou spécialisation]
-  - [Projet notable]
-  - [Mention ou distinction]
-
-### [Autre Diplôme] - [École]
-- Dates: [YYYY-MM] à [YYYY-MM]
-- Lieu: [Ville, France]
-- Points clés:
-  - [Point 1]
-
-## Expérience Professionnelle
-
-### [Poste Actuel] - [Entreprise]
-- Dates: [YYYY-MM] à present
-- Lieu: [Ville, France]
-- Responsabilités et réalisations:
-  - [Action + résultat quantifié, ex: "Développé une API REST réduisant le temps de réponse de 40%"]
-  - [Autre réalisation avec métriques]
-  - [Collaboration, leadership, etc.]
-
-### [Poste Précédent] - [Entreprise]
-- Dates: [YYYY-MM] à [YYYY-MM]
-- Lieu: [Ville, France]
-- Responsabilités et réalisations:
-  - [Réalisation 1]
-  - [Réalisation 2]
-
-## Projets Personnels
-
-### [Nom du Projet]
-- Dates: [YYYY-MM] à [YYYY-MM ou present]
-- Description: [Brève description du projet et de son objectif]
-- Technologies: [Python, FastAPI, React, PostgreSQL, Docker, etc.]
-- Points clés:
-  - [Fonctionnalité ou réalisation notable]
-  - [Impact ou apprentissage]
-  - [Lien GitHub si disponible]
-
-### [Autre Projet]
-- Dates: [YYYY-MM] à [YYYY-MM]
-- Description: [Description]
-- Technologies: [Technologies utilisées]
-- Points clés:
-  - [Point 1]
-
-## Compétences Techniques
-
-### Langages de Programmation
-- Python (expert): NumPy, Pandas, FastAPI, Django, asyncio
-- JavaScript/TypeScript: React, Node.js, Next.js
-- [Autres langages]
-
-### Outils & Technologies
-- Cloud: AWS (EC2, S3, Lambda), GCP
-- DevOps: Docker, Kubernetes, CI/CD (GitHub Actions)
-- Bases de données: PostgreSQL, MongoDB, Redis
-- [Autres outils]
-
-### Méthodologies
-- Agile/Scrum, TDD, Clean Architecture
-
-## Langues
-- Français: Natif
-- Anglais: Courant (C1) - [Certification si applicable]
-- [Autres langues]
-
-## Centres d'Intérêt
-- [Intérêt 1 pertinent pour le domaine]
-- [Intérêt 2]
-
-## Notes Additionnelles
-[Toute information supplémentaire qui pourrait être pertinente pour certains postes:
-motivations, objectifs de carrière, disponibilité, etc.]
-
----
-IMPORTANT: Ce fichier est la source de vérité pour la génération de CV.
-Toutes les informations doivent être exactes et vérifiables.
-Ne pas inclure d'informations que vous ne pouvez pas justifier en entretien.
-"""
     (profile_dir / "context.md").write_text(example_context)
-
-    # Create example profile.yaml
-    example_profile = """# Informations personnelles structurées
-# Ce fichier est optionnel mais permet une extraction plus fiable des infos de contact
-
-cv:
-  name: "Votre Nom Complet"
-  email: "votre.email@example.com"
-  phone: "+33 6 XX XX XX XX"
-  location: "Ville, France"
-  social_networks:
-    - network: LinkedIn
-      username: "votre-username"
-    - network: GitHub
-      username: "votre-username"
-"""
-    (profile_dir / "profile.yaml").write_text(example_profile)
 
     console.print(Panel(f"Profile directory created: {profile_dir}", style="green"))
     console.print("[green]Created files:[/green]")
     console.print(f"  - {profile_dir / 'context.md'}")
-    console.print(f"  - {profile_dir / 'profile.yaml'}")
+
     console.print("\n[yellow]Next steps:[/yellow]")
     console.print("1. Edit context.md with your real information")
     console.print("2. Edit profile.yaml with your contact details")

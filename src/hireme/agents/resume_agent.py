@@ -184,20 +184,6 @@ async def add_context_from_files(ctx: RunContext[ResumeAgentDeps]) -> str:
     )
 
     full_context = f"""
-================================================================================
-INFORMATIONS PERSONNELLES (si connues)
-================================================================================
-Nom: {user.name or "À extraire du contexte"}
-Email: {user.email or "À extraire du contexte"}
-Téléphone: {user.phone or "Non fourni"}
-Lieu: {user.location or "À extraire du contexte"}
-LinkedIn: {user.linkedin_username or "Non fourni"}
-GitHub: {user.github_username or "Non fourni"}
-
-================================================================================
-CONTEXTE PRINCIPAL (NOTE DE CONTEXTE)
-================================================================================
-{user.context_note or "Pas de note de contexte principale - utilise les fichiers ci-dessous"}
 
 ================================================================================
 TOUS LES FICHIERS DE CONTEXTE
