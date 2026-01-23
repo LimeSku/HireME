@@ -17,13 +17,13 @@ class UserContext(BaseModel):
     """Complete user context loaded from directory."""
 
     # Personal info (from structured files like YAML or parsed from notes)
-    name: str = Field(default="", description="Full name")
-    email: str = Field(default="", description="Email address")
-    phone: str | None = Field(default=None, description="Phone number")
-    location: str = Field(default="", description="Current location")
-    linkedin_username: str | None = Field(default=None, description="LinkedIn username")
-    github_username: str | None = Field(default=None, description="GitHub username")
-    website: str | None = Field(default=None, description="Personal website URL")
+    # name: str = Field(default="", description="Full name")
+    # email: str = Field(default="", description="Email address")
+    # phone: str | None = Field(default=None, description="Phone number")
+    # location: str = Field(default="", description="Current location")
+    # linkedin_username: str | None = Field(default=None, description="LinkedIn username")
+    # github_username: str | None = Field(default=None, description="GitHub username")
+    # website: str | None = Field(default=None, description="Personal website URL")
 
     # Raw file contents for context
     # files: list[FileContent] = Field(

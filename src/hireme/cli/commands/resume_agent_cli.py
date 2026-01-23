@@ -15,7 +15,7 @@ from rich.panel import Panel
 
 from hireme.agents.job_agent import JobDetails, extract_job
 from hireme.config import cfg
-from hireme.utils.models.resume_models import TailoredResume
+from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 
 logger = structlog.get_logger()
 
@@ -122,13 +122,16 @@ async def _generate_resume(
         Panel(f"Generating {len(job_results)} tailored resumes...", style="blue")
     )
 
-    tailored_resumes: list[TailoredResume] = []
+    tailored_resumes: list[TailoredResume | GenerationFailed] = []
     for i, job_result in enumerate(job_results):
         try:
+            resume_output_dir = output_dir / f"job_{i + 1}_{job_result.company.name}"
+            resume_output_dir.mkdir(parents=True, exist_ok=True)
+
             tailored_resume, pdf_path = await generate_resume(
                 candidate_profile=user_context,
                 structured_job=job_result,
-                output_dir=output_dir,
+                output_dir=resume_output_dir,
             )
             tailored_resumes.append(tailored_resume)
             console.print("[green]✓ Resume generated successfully![/green]")

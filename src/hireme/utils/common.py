@@ -162,13 +162,13 @@ def load_user_context_from_directory(
 
     # should parse user context from context.md
     return UserContext(
-        name=personal_info.get("name", ""),
-        email=personal_info.get("email", ""),
-        phone=personal_info.get("phone"),
-        location=personal_info.get("location", ""),
-        linkedin_username=personal_info.get("linkedin_username", ""),
-        github_username=personal_info.get("github_username", ""),
-        website=personal_info.get("website", ""),
+        # name=personal_info.get("name", ""),
+        # email=personal_info.get("email", ""),
+        # phone=personal_info.get("phone"),
+        # location=personal_info.get("location", ""),
+        # linkedin_username=personal_info.get("linkedin_username", ""),
+        # github_username=personal_info.get("github_username", ""),
+        # website=personal_info.get("website", ""),
         # files=files,
         context_note=context_note,
     )
