@@ -89,16 +89,11 @@ You must return a TailoredResume object or a GenerationFailed object.
 """
     )
 
-    # if isinstance(result.output, GenerationFailed):
-    #     logger.warning("Resume generation failed", reason=result.output.reason)
-    #     raise RuntimeError(f"Resume generation failed: {result.output.reason}")
     logger.info("Resume tailoring completed", usage=result.usage())
     if isinstance(result.output, GenerationFailed):
         logger.warning("Resume generation failed", reason=result.output.reason)
         raise RuntimeError(f"Resume generation failed: {result.output.reason}")
     elif isinstance(result.output, TailoredResume):
-        print("Generated TailoredResume:")
-        print(result.output.model_dump_json(indent=2))
         return result.output
     else:
         raise RuntimeError("Unexpected output type from resume agent")

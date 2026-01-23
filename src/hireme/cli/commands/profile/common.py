@@ -34,6 +34,24 @@ def find_profile_dir_by_name(profile_name: str) -> Path | None:
     return None
 
 
+def validate_profile(profile: str | Path | None):
+    """Validate and return the profile directory based on name or path."""
+    profile_dir: Path | None = None
+    if isinstance(profile, str):
+        profile_dir = find_profile_dir_by_name(profile)
+    elif isinstance(profile, Path):
+        profile_dir = profile
+
+    if profile is None:
+        typer.echo("You must provide a profile name or a path.")
+        raise typer.Exit(code=1)
+
+    if profile_dir is None or not profile_dir.exists() or not profile_dir.is_dir():
+        typer.echo(f"This profile does not exist or is not a directory: {profile_dir}")
+        raise typer.Exit(code=1)
+    return profile_dir
+
+
 def set_profile(
     profile: Path | str | None = None,
 ):

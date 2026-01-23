@@ -14,6 +14,10 @@ from rich.console import Console
 from rich.panel import Panel
 
 from hireme.agents.job_agent import JobDetails, extract_job
+from hireme.cli.commands.profile.common import (
+    complete_profile_names,
+    find_profile_dir_by_name,
+)
 from hireme.config import cfg
 from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 
@@ -27,9 +31,15 @@ def generate(
     job_dir: Annotated[
         Path, typer.Option(help="Directory containing job posting files.")
     ] = cfg.job_offers_dir,
-    profile_dir: Annotated[
-        Path, typer.Option(help="Directory containing profile files.")
-    ] = cfg.default_profile_dir,
+    profile_name: Annotated[
+        str | None,
+        typer.Option(
+            help="Name of the profile to use.", autocompletion=complete_profile_names
+        ),
+    ] = cfg.default_profile_dir.name,
+    # profile_dir: Annotated[
+    #     Path, typer.Option(help="Directory containing profile files.")
+    # ] = cfg.default_profile_dir,
     output_dir: Annotated[
         Path, typer.Option(help="Directory to save the generated resume files.")
     ] = Path("output/"),
@@ -50,6 +60,10 @@ def generate(
     """
     import asyncio
 
+    profile_dir = find_profile_dir_by_name(profile_name) if profile_name else None
+    if profile_dir is None:
+        logger.error("Profile not found", profile_name=profile_name)
+        raise typer.Exit(code=1)
     asyncio.run(
         _generate_resume(
             job_dir=job_dir,
@@ -84,25 +98,19 @@ async def _generate_resume(
 
     if not any(job_dir.rglob("*.txt")) and not any(job_dir.rglob("*.json")):
         console.print(f"[red]Error: No job posting files found in: {job_dir}[/red]")
-        return
+        raise typer.Exit(code=1)
 
-    if not profile_dir.exists():
+    if not any(profile_dir.rglob("*")):
         console.print(
-            f"[yellow]Warning: Profile directory not found: {profile_dir}. "
-            "Using default profile directory.[/yellow]"
+            f"[yellow]Profile directory is empty: {profile_dir}."
+            " Please populate it with your profile files.[/yellow]"
         )
-        profile_dir = (
-            cfg.default_profile_dir
-        )  # Accessing property to create directories
-        if not any(profile_dir.rglob("*")):
-            console.print(
-                f"[yellow]Profile directory is empty: {profile_dir}."
-                " Please populate it with your profile files.[/yellow]"
-            )
-            return
+        raise typer.Exit(code=1)
 
     # Load user context from directory
-    console.print(Panel(f"Loading user context from: {profile_dir}", style="blue"))
+    console.print(
+        Panel(f"Loading user context from {profile_dir.name} profile", style="blue")
+    )
     user_context = load_user_context_from_directory(profile_dir)
 
     # Extract job details
@@ -156,10 +164,10 @@ async def process_raw_jobs(
     and extracts structured job details into JSON files.
     """
     logger.debug("Loading raw job files from", job_dir=job_dir)
-    console.print(Panel("Extracting job details from posting...", style="blue"))
+    # console.print(Panel("Extracting job details from posting...", style="blue"))
     job_results: list[JobDetails] = []
     for job_file in job_dir.glob("*.txt"):
-        console.print(f"[blue]Processing job file: {job_file}[/blue]")
+        # console.print(f"[blue]Processing job file: {job_file}[/blue]")
         job_text = job_file.read_text()
         job_result = await extract_job(job_text)
         if not isinstance(job_result, JobDetails):
@@ -184,7 +192,7 @@ def process_parsed_jobs(
     console = Console()
     logger.debug("Loading processed job files from", job_dir=job_dir)
     for job_file in job_dir.glob("*.json"):
-        console.print(f"[blue]Loading already parsed job file: {job_file}[/blue]")
+        # console.print(f"[blue]Loading already parsed job file: {job_file}[/blue]")
         job_json_list = None
         with job_file.open() as f:
             job_json_list = json.load(f)

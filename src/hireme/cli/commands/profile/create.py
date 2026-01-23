@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.progress import track
 
 from hireme.cli.commands.profile.common import set_profile
 from hireme.config import cfg
@@ -36,17 +37,25 @@ def populate_new_profile(
         / "profiles"
         / ("default_profile" if is_example else "empty_profile")
     )
+
     if not template_profile_dir.exists():
         raise FileNotFoundError(
             f"Template profile directory not found: {template_profile_dir}"
         )
     # target is the new profile dir, either default example
     target_dir = (
-        cfg.profiles_dir / profile_name if profile_name else cfg.default_profile_dir
+        cfg.profiles_dir / profile_name
+        if profile_name
+        else cfg.profiles_dir / "default"
     )
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    for item in template_profile_dir.iterdir():
+    template_files = list(template_profile_dir.iterdir())
+    for _, item in track(
+        enumerate(template_files),
+        description="Copying profile files...",
+        total=len(template_files),
+    ):
         target_path = target_dir / item.name
         if item.is_dir():
             if not target_path.exists():
@@ -81,7 +90,7 @@ def create(
     ):
         profile_dir = profiles_dir / profile_name
     else:
-        # default profile
+        # default profile")
         default_profile_path = populate_new_profile(is_example=True)
         return default_profile_path
 
