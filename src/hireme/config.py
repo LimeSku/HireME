@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from pydantic import Field, computed_field
+from pydantic import DirectoryPath, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
@@ -21,7 +21,7 @@ class OllamaConfig(BaseSettings):
         alias="OLLAMA_FALLBACK_MODEL",
     )
     base_url: Optional[str] = Field(
-        default="http://localhost:11434",
+        default="http://localhost:11434/v1",
         description="The base URL for the Ollama API.",
         alias="OLLAMA_BASE_URL",
     )
@@ -109,9 +109,17 @@ class Config(BaseSettings):
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    assets_dir: Path = Field(
+    project_root: DirectoryPath = Field(
+        default_factory=lambda: Path.cwd(),
+        description="Root directory of the project.",
+    )
+    assets_dir: DirectoryPath = Field(
         default_factory=lambda: Path.cwd() / Path("assets"),
         description="Directory to store asset files.",
+    )
+    prompts_dir: DirectoryPath = Field(
+        default_factory=lambda: Path.cwd() / Path("assets") / Path("prompts"),
+        description="Directory to store prompt templates.",
     )
     # =============================================================================
     # project directories configuration
@@ -138,3 +146,4 @@ class Config(BaseSettings):
 
 # Global config instance
 cfg = Config()
+# print("Configuration loaded:", cfg)
