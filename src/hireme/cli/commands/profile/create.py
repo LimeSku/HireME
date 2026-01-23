@@ -104,7 +104,7 @@ def create(
             "Do you want to set this as the default profile? (y/n)", default="y"
         )
         if set_default.lower() in ("y", "yes"):
-            set_profile(profile_name=profile_name)
+            set_profile(profile=profile_name)
             console.print(
                 f"[green]Set profile '{profile_name}' as the default profile.[/green]"
             )

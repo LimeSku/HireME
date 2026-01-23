@@ -29,7 +29,7 @@ def generate(
     ] = cfg.job_offers_dir,
     profile_dir: Annotated[
         Path, typer.Option(help="Directory containing profile files.")
-    ] = cfg.profiles_dir,
+    ] = cfg.default_profile_dir,
     output_dir: Annotated[
         Path, typer.Option(help="Directory to save the generated resume files.")
     ] = Path("output/"),
@@ -198,45 +198,3 @@ def process_parsed_jobs(
             f"[green]Loaded job: {job_details.title} at {job_details.company.name}[/green]"
         )
     return job_results
-
-
-# @app.command("init")
-# def init(
-#     profile_dir: Annotated[
-#         Path | None, typer.Option(help="Directory to create the profile files in.")
-#     ] = None,
-# ):
-#     """Initialize a new profile directory with example files."""
-#     from rich.console import Console
-#     from rich.panel import Panel
-
-#     console = Console()
-
-#     if profile_dir is None:
-#         profile_dir = cfg.profile_dir  # Accessing property to create directories
-
-#     if profile_dir.exists() and any(profile_dir.iterdir()):
-#         console.print(
-#             f"[yellow]Profile directory already exists: {profile_dir}[/yellow]"
-#         )
-#         console.print(
-#             "[yellow]Use --profile-dir to specify a different location.[/yellow]"
-#         )
-#         return
-
-#     profile_dir.mkdir(parents=True, exist_ok=True)
-
-#     # Create example context.md
-#     example_context = open(cfg.assets_dir / "samples" / "context.md", "r").read()
-
-#     (profile_dir / "context.md").write_text(example_context)
-
-#     console.print(Panel(f"Profile directory created: {profile_dir}", style="green"))
-#     console.print("[green]Created files:[/green]")
-#     console.print(f"  - {profile_dir / 'context.md'}")
-
-#     console.print("\n[yellow]Next steps:[/yellow]")
-#     console.print("1. Edit context.md with your real information")
-#     console.print("2. Edit profile.yaml with your contact details")
-#     console.print("3. Add any PDF resumes or additional documents")
-#     console.print("4. Run: hireme resume generate")

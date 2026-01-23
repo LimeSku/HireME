@@ -23,7 +23,7 @@ from .setprofile import app as setprofile_app
 from .show import app as show_app
 
 # app = typer.Typer(name="profile", help="Manage user profile data.")
-app = typer.Typer(help="Manage user profile data.")
+app = typer.Typer(help="Manage user profile data.", no_args_is_help=True)
 app.add_typer(create_app)  # , name="create", help="Create a new profile.")
 app.add_typer(delete_app)  # , name="delete", help="Delete an existing profile.")
 app.add_typer(setprofile_app)  # , name="set", help="Set the active profile.")

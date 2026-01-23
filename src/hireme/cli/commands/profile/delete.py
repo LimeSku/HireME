@@ -3,7 +3,11 @@ from typing import Annotated
 
 import typer
 
-from hireme.cli.commands.profile.common import set_profile
+from hireme.cli.commands.profile.common import (
+    complete_profile_names,
+    get_profile_names,
+    set_profile,
+)
 from hireme.config import cfg
 
 app = typer.Typer()
@@ -12,19 +16,40 @@ app = typer.Typer()
 @app.command("delete")
 def delete(
     profile_name: Annotated[
-        str,
-        typer.Argument(help="Name of the profile to delete."),
-    ],
+        str | None,
+        typer.Option(
+            # None,
+            ...,
+            "--name",
+            "-n",
+            help="Name of the profile to delete.",
+            autocompletion=complete_profile_names,
+        ),
+    ] = None,
 ):
     """Deletes an existing profile and its data."""
     import shutil
 
+    from beaupy import select
     from rich.console import Console
     from rich.panel import Panel
 
     console = Console()
 
     profiles_dir = cfg.profiles_dir
+    if not profile_name:
+        profiles_list: list[str] = get_profile_names()
+        if not profiles_list:
+            console.print("[yellow]No profiles available to delete.[/yellow]")
+            raise typer.Exit()
+
+        selected_profile = select(profiles_list, return_index=False)
+        if selected_profile is None:
+            console.print("[yellow]No profile selected. Exiting.[/yellow]")
+            raise typer.Exit()
+        if isinstance(selected_profile, str):
+            profile_name = selected_profile
+
     if (
         profile_name
         and profile_name.strip() != ""
@@ -58,7 +83,7 @@ def delete(
                 style="green",
             )
         )
-        set_profile(profile_name="default")
+        set_profile(profile="default")
         console.print(f"[green]Reverted to default profile.[/green]")
     else:
         console.print(f"[yellow]Deletion cancelled.[/yellow]")
