@@ -13,7 +13,7 @@ import hireme.cli.commands.resume_agent_cli as resume_cli
 from hireme.cli.commands.job_agent_cli import app as job_cli
 from hireme.cli.commands.profile_cmds import app as profile_cli
 
-logfire.configure()
+logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 
 structlog.configure(
@@ -30,7 +30,8 @@ structlog.configure(
         ),
         structlog.dev.ConsoleRenderer(),
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging.NOTSET),
+    # wrapper_class=structlog.make_filtering_bound_logger(logging.NOTSET),
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
     cache_logger_on_first_use=False,

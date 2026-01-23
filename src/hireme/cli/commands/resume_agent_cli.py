@@ -97,11 +97,10 @@ async def _generate_resume(
         if not any(profile_dir.rglob("*")):
             console.print(
                 f"[yellow]Profile directory is empty: {profile_dir}."
-                # " Initializing with example files...[/yellow]"
                 " Please populate it with your profile files.[/yellow]"
             )
             return
-        # return
+
     # Load user context from directory
     console.print(Panel(f"Loading user context from: {profile_dir}", style="blue"))
     user_context = load_user_context_from_directory(profile_dir)
