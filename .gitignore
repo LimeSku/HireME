@@ -25,3 +25,4 @@ src/hireme/beta/
 tests/*
 !tests/.gitkeep
 dev-notes.md
+.hireme2

@@ -16,7 +16,7 @@ logger = structlog.get_logger(logger_name=__name__)
 
 RENDERCV_ASSETS_DIR = cfg.assets_dir / "rendercv"
 DESIGN_TEMPLATE_PATH = RENDERCV_ASSETS_DIR / "design.yaml"
-DEFAULT_PROFILE_DIR = cfg.profile_dir
+DEFAULT_PROFILE_DIR = cfg.default_profile_dir
 
 # =============================================================================
 # Resume Generation Functions

@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from pydantic import DirectoryPath, Field, computed_field
+from pydantic import DirectoryPath, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
@@ -66,28 +66,6 @@ class OpenAIConfig(BaseSettings):
 # =============================================================================
 
 
-def _create_default_hireme_dir() -> Path:
-    dir_path = Path.cwd() / Path(".hireme")
-    dir_path.mkdir(parents=True, exist_ok=True)
-    return dir_path
-
-
-def _create_default_job_offers_dir(hireme_dir: Path) -> Path:
-    dir_path = hireme_dir / Path("job_offers")
-    dir_path.mkdir(parents=True, exist_ok=True)
-    if not (dir_path / "raw").exists():
-        (dir_path / "raw").mkdir(parents=True, exist_ok=True)
-    if not (dir_path / "processed").exists():
-        (dir_path / "processed").mkdir(parents=True, exist_ok=True)
-    return dir_path
-
-
-def _create_default_profile_dir(hireme_dir: Path) -> Path:
-    dir_path = hireme_dir / Path("profile")
-    dir_path.mkdir(parents=True, exist_ok=True)
-    return dir_path
-
-
 class Config(BaseSettings):
     """Main application configuration."""
 
@@ -109,16 +87,17 @@ class Config(BaseSettings):
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    project_root: DirectoryPath = Field(
-        default_factory=lambda: Path.cwd(),
-        description="Root directory of the project.",
+    project_root: Path = Field(
+        default=Path.cwd(),
+        description="Root directory for HireME project.",
     )
-    assets_dir: DirectoryPath = Field(
-        default_factory=lambda: Path.cwd() / Path("assets"),
+
+    assets_dir: Path = Field(
+        default=Path.cwd() / "assets",
         description="Directory to store asset files.",
     )
-    prompts_dir: DirectoryPath = Field(
-        default_factory=lambda: Path.cwd() / Path("assets") / Path("prompts"),
+    prompts_dir: Path = Field(
+        default=Path.cwd() / "assets" / "prompts",
         description="Directory to store prompt templates.",
     )
     # =============================================================================
@@ -126,24 +105,42 @@ class Config(BaseSettings):
     # =============================================================================
 
     hireme_dir: Path = Field(
-        default_factory=_create_default_hireme_dir,
-        description="Base directory for HireME configurations and data.",
-    )
-
-    job_offers_dir: Path = Field(
-        default_factory=lambda: _create_default_job_offers_dir(
-            _create_default_hireme_dir()
-        ),
+        default=Path.cwd() / ".hireme",
         description="Directory to store job offers data.",
     )
-    profile_dir: Path = Field(
-        default_factory=lambda: _create_default_profile_dir(
-            _create_default_hireme_dir()
-        ),
-        description="Directory to store user profile data.",
+    job_offers_dir: Path = Field(
+        default=Path.cwd() / ".hireme" / "job_offers",
+        description="Directory to store job offers data.",
     )
+
+    profiles_dir: Path = Field(
+        default=Path.cwd() / ".hireme" / "profiles",
+        description="Directory to store different user profiles data.",
+    )
+
+    default_profile_dir: Path = Field(
+        default=Path.cwd() / ".hireme" / "profiles" / "default",
+        description="Profile directory used by default.",
+        alias="HIREME_DEFAULT_PROFILE_PATH",
+    )
+
+    @model_validator(mode="after")
+    def create_dirs(self):
+        dirs_to_create: list[Path] = [
+            self.hireme_dir,
+            self.job_offers_dir,
+            self.job_offers_dir / "raw",
+            self.job_offers_dir / "processed",
+            self.default_profile_dir,
+            self.profiles_dir,
+        ]
+        for dir_path in dirs_to_create:
+            dir_path.mkdir(parents=True, exist_ok=True)
+        return self
 
 
 # Global config instance
 cfg = Config()
-# print("Configuration loaded:", cfg)
+# print("Configuration loaded:")
+# for field_name, field_value in cfg.model_dump().items():
+#     print(f"\t{field_name}: {field_value}")

@@ -8,7 +8,7 @@ An AI-powered job application assistant that scrapes job postings, extracts stru
 - **AI Extraction**: Uses LLMs to parse job postings into structured data (skills, requirements, salary, etc.)
 - **Resume Generation**: Generates tailored resumes based on your profile and job requirements using RenderCV
 
-**See [output examples](./assets/examples/cli_examples.md) !**
+**See [output examples](./docs/examples/cli_examples.md) !**
 ## Installation
 
 ```bash

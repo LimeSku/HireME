@@ -11,9 +11,11 @@ import typer
 
 import hireme.cli.commands.resume_agent_cli as resume_cli
 from hireme.cli.commands.job_agent_cli import app as job_cli
+from hireme.cli.commands.profile_cmds import app as profile_cli
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
@@ -33,6 +35,7 @@ structlog.configure(
     logger_factory=structlog.PrintLoggerFactory(),
     cache_logger_on_first_use=False,
 )
+
 logger = structlog.get_logger(logger_name=__name__)
 logger.debug("Structlog configured for HireME CLI.")
 
@@ -40,6 +43,7 @@ logger.debug("Structlog configured for HireME CLI.")
 app = typer.Typer(name="hireme_cli", help="HireME CLI - Job and Resume Agents")
 app.add_typer(resume_cli.app, name="resume")
 app.add_typer(job_cli, name="job")
+app.add_typer(profile_cli, name="profile")
 
 
 def main() -> None:

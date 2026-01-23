@@ -1,0 +1,16 @@
+# User profile - minimal informations
+# Detailed informations (education, experience, skills) are in context.md
+
+profile:
+  # Personal Information (required)
+  name: "Jean Luc"
+  email: "jean.luc@edu.univ-paris.fr"
+
+  # Contact Information (optional but recommended)
+  phone: "+33 6 42 87 19 53"
+  location: "Paris, France"
+
+  # Online Presence (optional)
+  linkedin: "jean-luc"
+  github: "jl-data"
+  website: "www.jeanlucdata.com"
