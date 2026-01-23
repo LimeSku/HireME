@@ -32,3 +32,9 @@ hireme = "hireme.cli.main:app"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "beaupy>=3.11.0",
+    "textual-dev>=1.8.0",
+]

@@ -14,13 +14,14 @@ from hireme.config import cfg
 SUPPORTED_MODELS = Literal[
     "llama3.1:8b",
     "qwen2.5:7b-instruct",
+    "qwen3:14b",  # preferred
     "mistral:7b",
     "mistral-nemo:12b",
 ]
 
 
 def get_llm_model(
-    model: SUPPORTED_MODELS = "mistral-nemo:12b",
+    model: SUPPORTED_MODELS = "qwen3:14b",
     model_settings: ModelSettings | None = ModelSettings(temperature=0.1),
 ) -> OpenAIChatModel:
     """Helpers providing LLM model from a string identifier.

@@ -34,7 +34,8 @@ logger = structlog.get_logger(logger_name=__name__)
 # ResponseAgent: TypeAlias = ToolOutput[TailoredResume | GenerationFailed]
 
 resume_agent: Agent[None, TailoredResume | GenerationFailed] = Agent(
-    model=get_llm_model("mistral-nemo:12b"),
+    model=get_llm_model("qwen3:14b"),
+    # model=get_llm_model("mistral-nemo:12b"),
     # output_type=[ToolOutput[TailoredResume], ToolOutput[GenerationFailed]],
     output_type=TailoredResume | GenerationFailed,
     retries=3,
@@ -43,14 +44,14 @@ resume_agent: Agent[None, TailoredResume | GenerationFailed] = Agent(
 )
 
 
-@resume_agent.output_validator
-async def validate_resume(
-    output: TailoredResume | GenerationFailed,
-) -> TailoredResume | GenerationFailed:
-    if isinstance(output, GenerationFailed):
-        raise ModelRetry(f"Generation failed: {output.reason}")
-    else:
-        return output
+# @resume_agent.output_validator
+# async def validate_resume(
+#     output: TailoredResume | GenerationFailed,
+# ) -> TailoredResume | GenerationFailed:
+#     if isinstance(output, GenerationFailed):
+#         raise ModelRetry(f"Generation failed: {output.reason}")
+#     else:
+#         return output
 
 
 # =============================================================================
@@ -74,7 +75,7 @@ async def tailor_resume_from_context(
 
     result = await resume_agent.run(
         f"""
-Generate a TailoredResume object based on the following user context and job posting:\n\n
+Generate a TailoredResume from these informations:\n\n
 Contexte utilisateur:
 ```json
 {user_context.model_dump_json(indent=2)}
