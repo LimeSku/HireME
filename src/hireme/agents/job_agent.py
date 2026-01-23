@@ -343,6 +343,7 @@ async def main(
     """
     from rich.console import Console
     from rich.panel import Panel
+    from rich.progress import track
 
     console = Console()
     console.print(Panel(f"Job Extraction Agent - Mode: {mode}", style="bold blue"))
@@ -360,7 +361,11 @@ async def main(
 
         console.print(f"Found {len(job_urls)} job URLs to process.")
 
-        for i, url in enumerate(job_urls):
+        for i, url in track(
+            enumerate(job_urls),
+            total=len(job_urls),
+            description="Fetching job postings...",
+        ):
             logger.debug(
                 "Fetching offer content from URL",
                 preview_url=url[:URL_PREVIEW],

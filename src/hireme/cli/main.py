@@ -39,8 +39,9 @@ structlog.configure(
 logger = structlog.get_logger(logger_name=__name__)
 logger.debug("Structlog configured for HireME CLI.")
 
-
-app = typer.Typer(name="hireme_cli", help="HireME CLI - Job and Resume Agents")
+app = typer.Typer(
+    name="hireme_cli", help="HireME CLI - Job and Resume Agents", no_args_is_help=True
+)
 app.add_typer(resume_cli.app, name="resume")
 app.add_typer(job_cli, name="job")
 app.add_typer(profile_cli, name="profile")
@@ -48,7 +49,6 @@ app.add_typer(profile_cli, name="profile")
 
 def main() -> None:
     """CLI for the HireME application."""
-
     app()
 
 

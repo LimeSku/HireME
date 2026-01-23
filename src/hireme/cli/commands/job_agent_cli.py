@@ -20,20 +20,10 @@ def job_agent(
         "scrapper",
         help="Mode of operation: 'testing' uses a sample job posting, 'scrapper' fetches from a URL.",
     ),
-    # export_path: str | None = typer.Option(
-    #     None, help="Optional path to export extracted job data as JSON."
-    # ),
     export_dir: Annotated[
         Path, typer.Option(help="Directory to save the jobs data.")
-    ] = Path(cfg.job_offers_dir),
+    ] = cfg.job_offers_dir,
 ):
-    # def run_agent(
-    #     job: str,
-    #     max_results_per_source: int,
-    #     location: str,
-    #     mode: Literal["testing", "scrapper"],
-    #     export_dir: Path | None,
-    # ):
     """CLI for the Job Extraction Agent."""
     import asyncio
 
