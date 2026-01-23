@@ -172,6 +172,8 @@ def delete(
                 style="green",
             )
         )
+        set_profile(profile_name="default")
+        console.print(f"[green]Reverted to default profile.[/green]")
     else:
         console.print(f"[yellow]Deletion cancelled.[/yellow]")
 
