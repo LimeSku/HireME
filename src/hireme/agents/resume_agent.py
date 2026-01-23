@@ -7,12 +7,13 @@ Uses RenderCV for professional PDF generation.
 
 import tempfile
 from pathlib import Path
+from typing import TypeAlias
 
 import structlog
-from pydantic_ai import Agent, ModelRetry
+from pydantic_ai import Agent, ModelRetry, ToolOutput
 
 from hireme.agents.job_agent import JobDetails
-from hireme.agents.prompts import RESUME_AGENT_SYSTEM_PROMPT_ENG
+from hireme.agents.prompts import SystemPrompts
 from hireme.config import cfg
 from hireme.utils.common import load_user_context_from_directory
 from hireme.utils.models.models import UserContext
@@ -30,11 +31,15 @@ logger = structlog.get_logger(logger_name=__name__)
 # Resume Agent Definition
 # =============================================================================
 
+# ResponseAgent: TypeAlias = ToolOutput[TailoredResume | GenerationFailed]
+
 resume_agent: Agent[None, TailoredResume | GenerationFailed] = Agent(
     model=get_llm_model("mistral-nemo:12b"),
+    # output_type=[ToolOutput[TailoredResume], ToolOutput[GenerationFailed]],
     output_type=TailoredResume | GenerationFailed,
     retries=3,
-    system_prompt=RESUME_AGENT_SYSTEM_PROMPT_ENG,
+    instructions=SystemPrompts.resume_agent_system_prompt(),
+    # system_prompt=SystemPrompts.resume_agent_system_prompt(),
 )
 
 
@@ -56,7 +61,7 @@ async def validate_resume(
 async def tailor_resume_from_context(
     user_context: UserContext,
     job: JobDetails,
-) -> TailoredResume:
+) -> TailoredResume | GenerationFailed:
     """Tailor a resume from user context files for a specific job.
 
     Args:
@@ -69,7 +74,7 @@ async def tailor_resume_from_context(
 
     result = await resume_agent.run(
         f"""
-Generate a tailored resume based on the following user context and job posting:\n\n
+Generate a TailoredResume object based on the following user context and job posting:\n\n
 Contexte utilisateur:
 ```json
 {user_context.model_dump_json(indent=2)}
@@ -79,73 +84,81 @@ Offre d'emploi cible:
 ```json
 {job.model_dump_json(indent=2)}
 ```
-
+You must return a TailoredResume object or a GenerationFailed object.
 """
     )
 
+    # if isinstance(result.output, GenerationFailed):
+    #     logger.warning("Resume generation failed", reason=result.output.reason)
+    #     raise RuntimeError(f"Resume generation failed: {result.output.reason}")
+    logger.info("Resume tailoring completed", usage=result.usage())
     if isinstance(result.output, GenerationFailed):
         logger.warning("Resume generation failed", reason=result.output.reason)
         raise RuntimeError(f"Resume generation failed: {result.output.reason}")
-    logger.info("Resume tailoring completed", usage=result.usage())
-    return result.output
+    elif isinstance(result.output, TailoredResume):
+        print("Generated TailoredResume:")
+        print(result.output.model_dump_json(indent=2))
+        return result.output
+    else:
+        raise RuntimeError("Unexpected output type from resume agent")
 
 
-async def generate_resume_from_directory(
-    profile_dir: Path,
-    job: JobDetails,
-    output_dir: Path | None = None,
-    context_note_filename: str = "context.md",
-) -> tuple[TailoredResume, Path]:
-    """Complete pipeline: load context, tailor resume, and generate PDF.
+# async def generate_resume_from_directory(
+#     profile_dir: Path,
+#     job: JobDetails,
+#     output_dir: Path | None = None,
+#     context_note_filename: str = "context.md",
+# ) -> tuple[TailoredResume | GenerationFailed, Path]:
+#     """Complete pipeline: load context, tailor resume, and generate PDF.
 
-    Args:
-        profile_dir: Directory containing user profile files
-        job: Structured job details from the job extractor
-        output_dir: Optional output directory for generated files
-        context_note_filename: Name of the main context note file
-        profile_filename: Name of the structured profile YAML file
+#     Args:
+#         profile_dir: Directory containing user profile files
+#         job: Structured job details from the job extractor
+#         output_dir: Optional output directory for generated files
+#         context_note_filename: Name of the main context note file
+#         profile_filename: Name of the structured profile YAML file
 
-    Returns:
-        Tuple of (tailored resume, path to generated PDF)
-    """
-    if output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix="hireme_resume_"))
+#     Returns:
+#         Tuple of (tailored resume, path to generated PDF)
+#     """
+#     if output_dir is None:
+#         output_dir = Path(tempfile.mkdtemp(prefix="hireme_resume_"))
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+#     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Load user context from directory
-    user_context = load_user_context_from_directory(
-        profile_dir=profile_dir,
-        context_note_filename=context_note_filename,
-    )
+#     # Step 1: Load user context from directory
+#     user_context = load_user_context_from_directory(
+#         profile_dir=profile_dir,
+#         context_note_filename=context_note_filename,
+#     )
 
-    # Step 2: Tailor the resume
-    tailored_resume = await tailor_resume_from_context(user_context, job)
+#     # Step 2: Tailor the resume
+#     tailored_resume = await tailor_resume_from_context(user_context, job)
 
-    # Step 3: Generate RenderCV YAML
-    yaml_path = generate_rendercv_input(tailored_resume, output_dir)
+#     # Step 3: Generate RenderCV YAML
+#     yaml_path = generate_rendercv_input(tailored_resume, output_dir)
 
-    # Step 4: Run RenderCV to generate PDF
-    pdf_path = run_rendercv(yaml_path, output_dir)
+#     # Step 4: Run RenderCV to generate PDF
+#     pdf_path = run_rendercv(yaml_path, output_dir)
 
-    return tailored_resume, pdf_path
+#     return tailored_resume, pdf_path
 
 
-def generate_resume_from_directory_sync(
-    profile_dir: Path,
-    job: JobDetails,
-    output_dir: Path | None = None,
-    context_note_filename: str = "context.md",
-    profile_filename: str = "profile.yaml",
-) -> tuple[TailoredResume, Path]:
-    """Synchronous version of generate_resume_from_directory."""
-    import asyncio
+# def generate_resume_from_directory_sync(
+#     profile_dir: Path,
+#     job: JobDetails,
+#     output_dir: Path | None = None,
+#     context_note_filename: str = "context.md",
+#     profile_filename: str = "profile.yaml",
+# ) -> tuple[TailoredResume, Path]:
+#     """Synchronous version of generate_resume_from_directory."""
+#     import asyncio
 
-    return asyncio.run(
-        generate_resume_from_directory(
-            profile_dir, job, output_dir, context_note_filename
-        )
-    )
+#     return asyncio.run(
+#         generate_resume_from_directory(
+#             profile_dir, job, output_dir, context_note_filename
+#         )
+#     )
 
 
 # =============================================================================
@@ -159,9 +172,14 @@ async def generate_resume(
     tailored_resume = await tailor_resume_from_context(
         user_context=candidate_profile, job=structured_job
     )
-    yaml_path = generate_rendercv_input(tailored_resume, output_dir)
-    pdf_path = run_rendercv(yaml_path, output_dir)
-    return tailored_resume, pdf_path
+    if isinstance(tailored_resume, TailoredResume):
+        logger.info("Tailored resume generated successfully")
+        yaml_path = generate_rendercv_input(tailored_resume, output_dir)
+        pdf_path = run_rendercv(yaml_path, output_dir)
+        return tailored_resume, pdf_path
+    else:
+        logger.error("Resume generation failed", reason=tailored_resume.reason)
+        return tailored_resume, None
 
 
 # async def main():

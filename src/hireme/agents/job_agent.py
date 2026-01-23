@@ -158,11 +158,7 @@ class ExtractionFailed(BaseModel):
 # =============================================================================
 
 
-job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] = Agent(
-    model=get_llm_model("mistral-nemo:12b"),
-    output_type=JobDetails | ExtractionFailed,
-    retries=3,
-    system_prompt="""You are an expert job posting analyzer. Your task is to extract 
+old_sys_prompt = """You are an expert job posting analyzer. Your task is to extract 
 structured information from job postings to help candidates prepare quality applications.
 
 Guidelines:
@@ -174,7 +170,13 @@ Guidelines:
 - Be precise with salary information (currency, gross/net, period)
 - Extract company culture keywords when mentioned
 - If the text is not a job posting, return ExtractionFailed with reason
-""",
+"""
+
+job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] = Agent(
+    model=get_llm_model("mistral-nemo:12b"),
+    output_type=JobDetails | ExtractionFailed,
+    retries=3,
+    # system_prompt=
 )
 
 
