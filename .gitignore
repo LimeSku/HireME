@@ -13,9 +13,8 @@ wheels/
 .opencode
 .logfire
 .hireme/
-profile/
 
-jobs/
+
 output/*
 !output/.gitkeep
 

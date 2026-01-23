@@ -10,7 +10,7 @@ import structlog
 import typer
 
 from hireme.cli.commands.job_agent_cli import app as job_cli
-from hireme.cli.commands.profile_cmds import app as profile_cli
+from hireme.cli.commands.profile import app as profile_cli
 from hireme.cli.commands.resume_agent_cli import app as resume_cli
 
 logfire.configure(console=False)
