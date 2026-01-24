@@ -12,8 +12,8 @@ import structlog
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from hireme.scrapping.offers_finder import get_job_urls
-from hireme.scrapping.offers_parser import get_job_page
+from hireme.scraper.offers_finder import get_job_urls
+from hireme.scraper.offers_parser import get_job_page
 
 # from hireme.utils.providers import ollama_model
 from hireme.utils.providers import get_llm_model

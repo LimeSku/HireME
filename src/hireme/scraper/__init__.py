@@ -1,4 +1,4 @@
-"""Custom scrapping module with two main components:
+"""Custom scraping module with two main components:
 - offers_finder: To find job posting URLs based on search criteria.
 - offers_parser: To extract and clean job posting content from URLs.
 

@@ -12,7 +12,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from hireme.scrapping.common import create_driver
+from hireme.scraper.common import create_driver
 
 logger = structlog.get_logger(logger_name=__name__)
 
