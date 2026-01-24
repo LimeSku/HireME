@@ -9,6 +9,7 @@ import logfire
 import structlog
 import typer
 
+from hireme.cli.commands.db_cli import app as db_cli
 from hireme.cli.commands.job_agent_cli import app as job_cli
 from hireme.cli.commands.profile import app as profile_cli
 from hireme.cli.commands.resume_agent_cli import app as resume_cli
@@ -46,6 +47,7 @@ app = typer.Typer(
 app.add_typer(resume_cli, name="resume")
 app.add_typer(job_cli, name="job")
 app.add_typer(profile_cli, name="profile")
+app.add_typer(db_cli, name="db")
 
 
 def main() -> None:
