@@ -21,7 +21,7 @@ output/*
 src/hireme/web_ui.py
 src/hireme/beta/
 
-tests/*
+
 !tests/.gitkeep
 dev-notes.md
 .hireme2
