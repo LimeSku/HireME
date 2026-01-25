@@ -72,9 +72,8 @@ async def _find_jobs(
         SAMPLE_POSTING,
         JobDetails,
         extract_job,
-        get_job_page,
-        get_job_urls,
     )
+    from hireme.scraper import get_job_page_async, get_job_urls_async
 
     console.print(Panel(f"Job Search - Mode: {mode}", style="bold blue"))
 
@@ -85,7 +84,7 @@ async def _find_jobs(
         job_offers = [{"url": "sample_url", "content": SAMPLE_POSTING}]
     else:
         console.print(Panel("Fetching live job postings...", style="yellow"))
-        job_urls = get_job_urls(
+        job_urls = await get_job_urls_async(
             query, location=location, max_results_per_source=max_results_per_source
         )
         console.print(f"Found {len(job_urls)} job URLs to process.")
@@ -95,7 +94,7 @@ async def _find_jobs(
             total=len(job_urls),
             description="Fetching job postings...",
         ):
-            job_posting = get_job_page(url)
+            job_posting = await get_job_page_async(url)
             if job_posting:
                 job_offers.append({"url": url, "content": job_posting})
 

@@ -1,3 +1,26 @@
+"""DEPRECATED: Selenium-based browser driver.
+
+This module is kept for backwards compatibility only.
+New code should use playwright_scraper.py instead.
+
+Migration guide:
+    # Old (Selenium)
+    from hireme.scraper.common import create_driver
+    driver = create_driver(headless=True)
+    driver.get(url)
+    # ... do stuff
+    driver.quit()
+
+    # New (Playwright - async)
+    from hireme.scraper import BrowserManager
+    async with BrowserManager.get_page() as page:
+        await page.goto(url)
+        # ... do stuff
+    # Browser context auto-closes
+"""
+
+import warnings
+
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
@@ -6,12 +29,20 @@ from selenium.webdriver.chrome.options import Options
 def create_driver(headless: bool = True) -> webdriver.Chrome:
     """Create a configured Chrome WebDriver.
 
+    DEPRECATED: Use playwright_scraper.BrowserManager instead.
+
     Args:
         headless: Run browser without GUI (default True)
 
     Returns:
         Configured Chrome WebDriver instance
     """
+    warnings.warn(
+        "create_driver() is deprecated. Use playwright_scraper.BrowserManager instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     options = Options()
 
     if headless:

@@ -1,18 +1,20 @@
-"""Selenium-based scraper for job offer pages.
+"""Playwright-based scraper for job offer pages.
 
-Handles JavaScript-rendered pages that requests-based scrapers can't handle.
+Handles JavaScript-rendered pages with efficient resource management.
+Migrated from Selenium for better async support and performance.
 """
 
+import asyncio
 import re
 
 import structlog
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 
-from hireme.scraper.common import create_driver
+from hireme.scraper.playwright_scraper import (
+    BrowserManager,
+    get_cache,
+    get_multiple_pages,
+    get_page_content,
+)
 
 logger = structlog.get_logger(logger_name=__name__)
 
@@ -47,75 +49,39 @@ def clean_html_text(text: str) -> str:
     return text.strip()
 
 
-def get_page_text(
-    url: str, wait_selector: str | None = None, timeout: int = 10
+async def get_page_text_async(
+    url: str, wait_selector: str | None = None, timeout: int = 15000
 ) -> str | None:
-    """Download and extract text from a web page using Selenium.
+    """Download and extract text from a web page using Playwright.
 
     Args:
         url: URL to scrape
         wait_selector: CSS selector to wait for before extracting (optional)
-        timeout: Max seconds to wait for page load
+        timeout: Max milliseconds to wait for page load
 
     Returns:
         Cleaned text content or None if failed
     """
-    driver = None
-    try:
-        driver = create_driver(headless=True)
-        driver.get(url)
+    content = await get_page_content(url, wait_selector, timeout, use_cache=True)
+    if content:
+        return clean_text(content)
+    return None
 
-        # Wait for specific element if provided
-        if wait_selector:
-            WebDriverWait(driver, timeout).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector))
-            )
-        else:
-            # Wait for body to be present
-            WebDriverWait(driver, timeout).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
 
-        # Get main content - try common job posting containers first
-        content_selectors = [
-            "article",
-            "[role='main']",
-            ".job-description",
-            ".job-details",
-            ".job-posting",
-            "#job-content",
-            "main",
-            "body",
-        ]
+def get_page_text(
+    url: str, wait_selector: str | None = None, timeout: int = 10
+) -> str | None:
+    """Sync wrapper for get_page_text_async.
 
-        text = ""
-        for selector in content_selectors:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                if elements:
-                    text = elements[0].text
-                    if len(text) > 200:  # Found meaningful content
-                        break
-            except Exception:
-                continue
+    Args:
+        url: URL to scrape
+        wait_selector: CSS selector to wait for before extracting (optional)
+        timeout: Max seconds to wait for page load (converted to ms)
 
-        # Fallback to body
-        if not text or len(text) < 200:
-            text = driver.find_element(By.TAG_NAME, "body").text
-
-        # Clean the text
-        cleaned = clean_text(text)
-        return cleaned
-
-    except TimeoutException:
-        logger.error(f"Timeout loading page: {url}")
-        return None
-    except WebDriverException as e:
-        logger.error(f"WebDriver error: {e}")
-        return None
-    finally:
-        if driver:
-            driver.quit()
+    Returns:
+        Cleaned text content or None if failed
+    """
+    return asyncio.run(get_page_text_async(url, wait_selector, timeout * 1000))
 
 
 def clean_text(text: str) -> str:
@@ -147,10 +113,30 @@ def clean_text(text: str) -> str:
     return result
 
 
-def get_job_page(url: str) -> str | None:
-    """Convenience function to scrape a job posting page.
+# Common selectors for known job sites
+JOB_SITE_SELECTORS = {
+    "linkedin.com": ".jobs-description",
+    "indeed.com": "#jobDescriptionText",
+    "glassdoor.com": ".jobDescriptionContent",
+    "welcometothejungle.com": "[data-testid='job-section-description']",
+    "lever.co": ".posting-page",
+    "greenhouse.io": "#content",
+    "workable.com": "[data-ui='job-description']",
+}
 
-    Tries common job site patterns for waiting.
+
+def _get_wait_selector(url: str) -> str | None:
+    """Get the appropriate wait selector for a known job site."""
+    for domain, selector in JOB_SITE_SELECTORS.items():
+        if domain in url:
+            return selector
+    return None
+
+
+async def get_job_page_async(url: str) -> str | None:
+    """Scrape a job posting page (async).
+
+    Uses caching to avoid redundant requests.
 
     Args:
         url: Job posting URL
@@ -158,35 +144,69 @@ def get_job_page(url: str) -> str | None:
     Returns:
         Extracted text or None
     """
-    # Common selectors for job sites
-    wait_selectors = {
-        "linkedin.com": ".jobs-description",
-        "indeed.com": "#jobDescriptionText",
-        "glassdoor.com": ".jobDescriptionContent",
-        "welcometothejungle.com": "[data-testid='job-section-description']",
-        "lever.co": ".posting-page",
-        "greenhouse.io": "#content",
-        "workable.com": "[data-ui='job-description']",
-    }
+    wait_selector = _get_wait_selector(url)
+    return await get_page_text_async(url, wait_selector=wait_selector)
 
-    # Find matching selector for known sites
-    wait_selector = None
-    for domain, selector in wait_selectors.items():
-        if domain in url:
-            wait_selector = selector
-            break
 
-    return get_page_text(url, wait_selector=wait_selector)
+def get_job_page(url: str) -> str | None:
+    """Convenience function to scrape a job posting page (sync).
+
+    Tries common job site patterns for waiting.
+    Uses caching to avoid redundant requests.
+
+    Args:
+        url: Job posting URL
+
+    Returns:
+        Extracted text or None
+    """
+    return asyncio.run(get_job_page_async(url))
+
+
+async def get_job_pages_async(urls: list[str]) -> dict[str, str | None]:
+    """Scrape multiple job posting pages efficiently.
+
+    Uses shared browser and concurrent requests with rate limiting.
+
+    Args:
+        urls: List of job posting URLs
+
+    Returns:
+        Dictionary mapping URLs to their content
+    """
+    await BrowserManager.initialize()
+    try:
+        results = await get_multiple_pages(
+            urls,
+            max_concurrent=3,
+            use_cache=True,
+        )
+        # Clean all results
+        return {
+            url: clean_text(content) if content else None
+            for url, content in results.items()
+        }
+    finally:
+        await BrowserManager.close()
+
+
+def get_job_pages(urls: list[str]) -> dict[str, str | None]:
+    """Sync wrapper for get_job_pages_async."""
+    return asyncio.run(get_job_pages_async(urls))
 
 
 if __name__ == "__main__":
-    # Test with a sample URL
-    test_url = input("Enter job posting URL: ").strip()
-    if test_url:
-        result_job = get_job_page(test_url)
-        if result_job:
-            print("\n" + "=" * 50)
-            print(result_job)
-            print("=" * 50)
-        else:
-            print("Failed to extract content")
+    import asyncio
+
+    async def main():
+        test_url = input("Enter job posting URL: ").strip()
+        if test_url:
+            result_job = await get_job_page_async(test_url)
+            if result_job:
+                print("\n" + "=" * 50)
+                print(result_job)
+                print("=" * 50)
+            else:
+                print("Failed to extract content")
+
+    asyncio.run(main())
