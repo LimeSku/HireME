@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console
 
 from hireme.config import cfg
 
@@ -50,6 +51,22 @@ def validate_profile(profile: str | Path | None):
         typer.echo(f"This profile does not exist or is not a directory: {profile_dir}")
         raise typer.Exit(code=1)
     return profile_dir
+
+
+def select_profile(console: Console) -> str:
+    from beaupy import select
+
+    console = Console()
+
+    profile_names = get_profile_names()
+    if not profile_names:
+        typer.echo("No profiles found.")
+        raise typer.Exit(code=1)
+
+    console.print("Select a profile:")
+    profile_name: str = select(profile_names, return_index=False)  # type: ignore
+    # return find_profile_dir_by_name(profile_name)  # type: ignore
+    return profile_name
 
 
 def set_profile(

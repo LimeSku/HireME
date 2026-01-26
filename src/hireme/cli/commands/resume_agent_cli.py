@@ -50,7 +50,7 @@ def generate(
         typer.Option(
             help="Name of the profile to use.", autocompletion=complete_profile_names
         ),
-    ] = cfg.default_profile_dir.name,
+    ] = None,
     output_dir: Annotated[
         Path, typer.Option(help="Directory to save the generated resume files.")
     ] = Path("output/"),
@@ -66,6 +66,12 @@ def generate(
     Legacy: Use --job-dir to read from the file-based job_offers directory.
     """
     import asyncio
+
+    from hireme.cli.commands.profile.common import select_profile
+
+    console = Console()
+    if profile_name is None:
+        profile_name = select_profile(console)
 
     profile_dir = find_profile_dir_by_name(profile_name) if profile_name else None
     if profile_dir is None:
