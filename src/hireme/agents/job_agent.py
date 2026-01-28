@@ -174,13 +174,35 @@ Guidelines:
 - If the text is not a job posting, return ExtractionFailed with reason
 """
 
-# job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] =
-job_extraction_agent: Agent[None, ExtractionFailed | JobDetails] = Agent(
-    model=get_llm_model("mistral-nemo:12b"),
-    output_type=JobDetails | ExtractionFailed,
-    retries=3,
-    # system_prompt=
-)
+# Lazy-loaded agent instance
+_job_extraction_agent: Agent[None, ExtractionFailed | JobDetails] | None = None
+
+
+def get_job_extraction_agent() -> Agent[None, ExtractionFailed | JobDetails]:
+    """Get or create the job extraction agent lazily."""
+    global _job_extraction_agent
+    if _job_extraction_agent is None:
+        _job_extraction_agent = Agent(
+            model=get_llm_model("mistral-nemo:12b"),
+            output_type=JobDetails | ExtractionFailed,
+            retries=3,
+        )
+    return _job_extraction_agent
+
+
+# Backwards compatibility alias (for imports that expect the module-level variable)
+# This property-like access delays instantiation until first use
+class _LazyAgent:
+    """Lazy wrapper for backwards compatibility."""
+
+    def __getattr__(self, name):
+        return getattr(get_job_extraction_agent(), name)
+
+    async def run(self, *args, **kwargs):
+        return await get_job_extraction_agent().run(*args, **kwargs)
+
+
+job_extraction_agent = _LazyAgent()
 
 
 SAMPLE_POSTING = """
@@ -236,9 +258,8 @@ async def extract_job(text: str) -> JobDetails | ExtractionFailed:
     Returns:
         Structured JobDetails or ExtractionFailed
     """
-    result = await job_extraction_agent.run(
-        f"Extract job details from this posting:\n\n{text}"
-    )
+    agent = get_job_extraction_agent()
+    result = await agent.run(f"Extract job details from this posting:\n\n{text}")
     if isinstance(result.output, ExtractionFailed):
         logger.error("Job extraction failed", reason=result.output.reason)
     else:

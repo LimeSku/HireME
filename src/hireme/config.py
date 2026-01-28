@@ -139,8 +139,32 @@ class Config(BaseSettings):
         return self
 
 
-# Global config instance
-cfg = Config()
+# Global config instance - lazy loaded
+_cfg: Config | None = None
+
+
+def get_config() -> Config:
+    """Get or create the config instance lazily."""
+    global _cfg
+    if _cfg is None:
+        _cfg = Config()
+    return _cfg
+
+
+class _LazyConfig:
+    """Lazy proxy for backwards compatibility with 'from hireme.config import cfg'.
+
+    Delays Config instantiation (and directory creation) until first attribute access.
+    """
+
+    def __getattr__(self, name):
+        return getattr(get_config(), name)
+
+    def __repr__(self):
+        return repr(get_config())
+
+
+cfg = _LazyConfig()
 # print("Configuration loaded:")
 # for field_name, field_value in cfg.model_dump().items():
 #     print(f"\t{field_name}: {field_value}")

@@ -5,8 +5,9 @@ import structlog
 import typer
 from rich.console import Console
 
-from hireme.config import cfg
-from hireme.db import JobSource, get_db
+# Lazy imports - moved inside functions to speed up CLI startup
+# from hireme.config import cfg
+# from hireme.db import JobSource, get_db
 
 logger = structlog.get_logger()
 console = Console()
@@ -41,6 +42,8 @@ def job_agent(
 
     # Use export_dir if specified, otherwise only save to DB
     if export_dir is None and not save_to_db:
+        from hireme.config import cfg
+
         export_dir = cfg.job_offers_dir
 
     asyncio.run(
@@ -98,7 +101,12 @@ async def _find_jobs(
                 job_offers.append({"url": url, "content": job_posting})
 
     # Process and extract job details
-    db = get_db() if save_to_db else None
+    if save_to_db:
+        from hireme.db import get_db
+
+        db = get_db()
+    else:
+        db = None
     results_count = 0
 
     for posting in track(job_offers, description="Extracting job details..."):
@@ -115,6 +123,8 @@ async def _find_jobs(
 
             # Save to database
             if db:
+                from hireme.db import JobSource
+
                 job = db.add_job_offer(
                     title=result.title,
                     company_name=result.company.name,

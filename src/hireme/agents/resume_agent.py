@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Annotated, Any, Dict, Sequence, TypeAlias
 
 import structlog
-from langfuse import get_client
 from pydantic_ai import Agent
 
 # from pydantic_ai.agent import Agent
@@ -28,30 +27,51 @@ from hireme.utils.rendercv_helpers import (
 )
 
 logger = structlog.get_logger(logger_name=__name__)
-langfuse = get_client()
-
 
 # =============================================================================
-# Resume Agent Definition
+# Lazy-loaded globals
 # =============================================================================
 
-# ResponseAgent: TypeAlias = ToolOutput[TailoredResume | GenerationFailed]
-
-resume_system_prompt = langfuse.get_prompt(
-    "system_resume_agent", label="dev", type="text"
-)
+_langfuse_client = None
+_resume_agent = None
 
 
-# resume_agent: Agent[None, TailoredResume | GenerationFailed]
-resume_agent = Agent(
-    # model=get_llm_model("qwen2.5:7b-instruct"),
-    model=get_llm_model("qwen3:14b"),
-    output_type=TailoredResume | GenerationFailed,
-    retries=3,
-    instructions=SystemPrompts.resume_agent_system_prompt(),
-    name="Resume Agent",
-    # description="Generates tailored resumes based on user context and job details.",
-)
+def get_langfuse_client():
+    """Get or create the Langfuse client lazily."""
+    global _langfuse_client
+    if _langfuse_client is None:
+        from langfuse import get_client
+
+        _langfuse_client = get_client()
+    return _langfuse_client
+
+
+def get_resume_agent() -> Agent[None, TailoredResume | GenerationFailed]:
+    """Get or create the resume agent lazily."""
+    global _resume_agent
+    if _resume_agent is None:
+        _resume_agent = Agent(
+            model=get_llm_model("qwen3:14b"),
+            output_type=TailoredResume | GenerationFailed,
+            retries=3,
+            instructions=SystemPrompts.resume_agent_system_prompt(),
+            name="Resume Agent",
+        )
+    return _resume_agent
+
+
+# Backwards compatibility: lazy wrapper for module-level access
+class _LazyResumeAgent:
+    """Lazy wrapper for backwards compatibility."""
+
+    def __getattr__(self, name):
+        return getattr(get_resume_agent(), name)
+
+    async def run(self, *args, **kwargs):
+        return await get_resume_agent().run(*args, **kwargs)
+
+
+resume_agent = _LazyResumeAgent()
 
 
 # @resume_agent.output_validator
@@ -82,6 +102,7 @@ async def tailor_resume_from_context(
     Returns:
         Structured TailoredResume based on given information
     """
+    langfuse = get_langfuse_client()
     langfuse_prompt = langfuse.get_prompt("resume_agent_text", label="dev")
 
     agent_prompt = langfuse_prompt.compile(
@@ -92,7 +113,8 @@ async def tailor_resume_from_context(
     # agent_history = convert_langfuse_to_pydantic_ai(agent_prompt)
     # current_prompt = agent_history[-1]
 
-    result = await resume_agent.run(agent_prompt)
+    agent = get_resume_agent()
+    result = await agent.run(agent_prompt)
 
     logger.info("Resume tailoring completed", usage=result.usage())
     if isinstance(result.output, GenerationFailed):

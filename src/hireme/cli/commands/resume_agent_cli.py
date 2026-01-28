@@ -13,14 +13,15 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from hireme.agents.job_agent import JobDetails, extract_job
+# Lazy imports - moved inside functions to speed up CLI startup
+# from hireme.agents.job_agent import JobDetails, extract_job
+# from hireme.config import cfg
+# from hireme.db import get_db
+# from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 from hireme.cli.commands.profile.common import (
     complete_profile_names,
     find_profile_dir_by_name,
 )
-from hireme.config import cfg
-from hireme.db import get_db
-from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 
 logger = structlog.get_logger()
 
@@ -93,7 +94,10 @@ def generate(
     else:
         # Legacy file-based mode
         if job_dir is None:
+            from hireme.config import cfg
+
             job_dir = cfg.job_offers_dir
+        assert job_dir is not None  # Guaranteed non-None at this point
         asyncio.run(
             _generate_resume_from_files(
                 job_dir=job_dir,
@@ -112,8 +116,11 @@ async def _generate_resume_from_db(
     output_dir: Path,
 ):
     """Generate resumes from jobs stored in database."""
+    from hireme.agents.job_agent import JobDetails
     from hireme.agents.resume_agent import generate_resume
+    from hireme.db import get_db
     from hireme.utils.common import load_user_context_from_directory
+    from hireme.utils.models.resume_models import GenerationFailed
 
     console = Console()
     db = get_db()
@@ -218,9 +225,11 @@ async def _generate_resume_from_files(
     parse_job: bool = False,
 ):
     """Async implementation of resume generation."""
-
+    from hireme.agents.job_agent import JobDetails
     from hireme.agents.resume_agent import generate_resume
+    from hireme.config import cfg
     from hireme.utils.common import load_user_context_from_directory
+    from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 
     console = Console()
     # Determine job file path
@@ -292,12 +301,14 @@ async def process_raw_jobs(
     job_dir: Annotated[
         Path, typer.Option(help="Directory containing job posting files.")
     ],
-) -> list[JobDetails]:
+) -> list:
     """Parse job postings to extract structured job details.
 
     Reads raw job posting text files from the specified directory
     and extracts structured job details into JSON files.
     """
+    from hireme.agents.job_agent import JobDetails, extract_job
+
     logger.debug("Loading raw job files from", job_dir=job_dir)
     # console.print(Panel("Extracting job details from posting...", style="blue"))
     job_results: list[JobDetails] = []
@@ -317,12 +328,14 @@ def process_parsed_jobs(
     job_dir: Annotated[
         Path, typer.Option(help="Directory containing job posting files.")
     ],
-) -> list[JobDetails]:
+) -> list:
     """Load already parsed job postings from JSON files.
 
     Reads processed job posting JSON files from the specified directory
     and loads structured job details.
     """
+    from hireme.agents.job_agent import JobDetails
+
     job_results: list[JobDetails] = []
     console = Console()
     logger.debug("Loading processed job files from", job_dir=job_dir)
