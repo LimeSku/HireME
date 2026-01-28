@@ -5,7 +5,6 @@ import structlog
 import typer
 from rich.console import Console
 
-from hireme.agents.job_agent import main
 from hireme.config import cfg
 from hireme.db import JobSource, get_db
 

@@ -5,8 +5,6 @@ Tests for:
 """
 
 import tempfile
-from pathlib import Path
-from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

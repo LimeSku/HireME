@@ -4,7 +4,6 @@ from typing import Annotated
 import typer
 
 from hireme.cli.commands.profile.common import set_profile
-from hireme.config import cfg
 
 app = typer.Typer()
 

@@ -11,7 +11,6 @@ import structlog
 
 from hireme.scraper.playwright_scraper import (
     BrowserManager,
-    get_cache,
     get_multiple_pages,
     get_page_content,
 )

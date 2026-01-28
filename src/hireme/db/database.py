@@ -11,11 +11,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field
 from sqlalchemy import (
     JSON,
     Boolean,
-    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -23,9 +21,6 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
-)
-from sqlalchemy import (
-    Enum as SQLEnum,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,

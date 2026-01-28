@@ -10,7 +10,9 @@ from typing import Literal
 
 import structlog
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent
+
+# from pydantic_ai import Agent
+from pydantic_ai.agent import Agent
 
 from hireme.scraper.offers_finder import get_job_urls
 from hireme.scraper.offers_parser import get_job_page
@@ -172,7 +174,8 @@ Guidelines:
 - If the text is not a job posting, return ExtractionFailed with reason
 """
 
-job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] = Agent(
+# job_extraction_agent: Agent[None, JobDetails | ExtractionFailed] =
+job_extraction_agent: Agent[None, ExtractionFailed | JobDetails] = Agent(
     model=get_llm_model("mistral-nemo:12b"),
     output_type=JobDetails | ExtractionFailed,
     retries=3,

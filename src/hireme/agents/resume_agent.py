@@ -5,17 +5,20 @@ to construct tailored resumes for job offers without hallucinating.
 Uses RenderCV for professional PDF generation.
 """
 
-import tempfile
+# import tempfile
 from pathlib import Path
-from typing import TypeAlias
+from typing import Annotated, Any, Dict, Sequence, TypeAlias
 
 import structlog
-from pydantic_ai import Agent, ModelRetry, ToolOutput
+from langfuse import get_client
+from pydantic_ai import Agent
 
+# from pydantic_ai.agent import Agent
 from hireme.agents.job_agent import JobDetails
 from hireme.agents.prompts import SystemPrompts
-from hireme.config import cfg
-from hireme.utils.common import load_user_context_from_directory
+
+# from hireme.config import cfg
+# from hireme.utils.common import load_user_context_from_directory
 from hireme.utils.models.models import UserContext
 from hireme.utils.models.resume_models import GenerationFailed, TailoredResume
 from hireme.utils.providers import get_llm_model
@@ -25,6 +28,7 @@ from hireme.utils.rendercv_helpers import (
 )
 
 logger = structlog.get_logger(logger_name=__name__)
+langfuse = get_client()
 
 
 # =============================================================================
@@ -33,14 +37,20 @@ logger = structlog.get_logger(logger_name=__name__)
 
 # ResponseAgent: TypeAlias = ToolOutput[TailoredResume | GenerationFailed]
 
-resume_agent: Agent[None, TailoredResume | GenerationFailed] = Agent(
+resume_system_prompt = langfuse.get_prompt(
+    "system_resume_agent", label="dev", type="text"
+)
+
+
+# resume_agent: Agent[None, TailoredResume | GenerationFailed]
+resume_agent = Agent(
+    # model=get_llm_model("qwen2.5:7b-instruct"),
     model=get_llm_model("qwen3:14b"),
-    # model=get_llm_model("mistral-nemo:12b"),
-    # output_type=[ToolOutput[TailoredResume], ToolOutput[GenerationFailed]],
     output_type=TailoredResume | GenerationFailed,
     retries=3,
     instructions=SystemPrompts.resume_agent_system_prompt(),
-    # system_prompt=SystemPrompts.resume_agent_system_prompt(),
+    name="Resume Agent",
+    # description="Generates tailored resumes based on user context and job details.",
 )
 
 
@@ -72,22 +82,17 @@ async def tailor_resume_from_context(
     Returns:
         Structured TailoredResume based on given information
     """
+    langfuse_prompt = langfuse.get_prompt("resume_agent_text", label="dev")
 
-    result = await resume_agent.run(
-        f"""
-Generate a TailoredResume from these informations:\n\n
-Contexte utilisateur:
-```json
-{user_context.model_dump_json(indent=2)}
-```
-
-Offre d'emploi cible:
-```json
-{job.model_dump_json(indent=2)}
-```
-You must return a TailoredResume object or a GenerationFailed object.
-"""
+    agent_prompt = langfuse_prompt.compile(
+        user_context=user_context.model_dump_json(indent=2),
+        job_description=job.model_dump_json(indent=2),
     )
+    # logger.info("", prompt=agent_prompt, prompt_type=type(agent_prompt))
+    # agent_history = convert_langfuse_to_pydantic_ai(agent_prompt)
+    # current_prompt = agent_history[-1]
+
+    result = await resume_agent.run(agent_prompt)
 
     logger.info("Resume tailoring completed", usage=result.usage())
     if isinstance(result.output, GenerationFailed):
@@ -97,64 +102,6 @@ You must return a TailoredResume object or a GenerationFailed object.
         return result.output
     else:
         raise RuntimeError("Unexpected output type from resume agent")
-
-
-# async def generate_resume_from_directory(
-#     profile_dir: Path,
-#     job: JobDetails,
-#     output_dir: Path | None = None,
-#     context_note_filename: str = "context.md",
-# ) -> tuple[TailoredResume | GenerationFailed, Path]:
-#     """Complete pipeline: load context, tailor resume, and generate PDF.
-
-#     Args:
-#         profile_dir: Directory containing user profile files
-#         job: Structured job details from the job extractor
-#         output_dir: Optional output directory for generated files
-#         context_note_filename: Name of the main context note file
-#         profile_filename: Name of the structured profile YAML file
-
-#     Returns:
-#         Tuple of (tailored resume, path to generated PDF)
-#     """
-#     if output_dir is None:
-#         output_dir = Path(tempfile.mkdtemp(prefix="hireme_resume_"))
-
-#     output_dir.mkdir(parents=True, exist_ok=True)
-
-#     # Step 1: Load user context from directory
-#     user_context = load_user_context_from_directory(
-#         profile_dir=profile_dir,
-#         context_note_filename=context_note_filename,
-#     )
-
-#     # Step 2: Tailor the resume
-#     tailored_resume = await tailor_resume_from_context(user_context, job)
-
-#     # Step 3: Generate RenderCV YAML
-#     yaml_path = generate_rendercv_input(tailored_resume, output_dir)
-
-#     # Step 4: Run RenderCV to generate PDF
-#     pdf_path = run_rendercv(yaml_path, output_dir)
-
-#     return tailored_resume, pdf_path
-
-
-# def generate_resume_from_directory_sync(
-#     profile_dir: Path,
-#     job: JobDetails,
-#     output_dir: Path | None = None,
-#     context_note_filename: str = "context.md",
-#     profile_filename: str = "profile.yaml",
-# ) -> tuple[TailoredResume, Path]:
-#     """Synchronous version of generate_resume_from_directory."""
-#     import asyncio
-
-#     return asyncio.run(
-#         generate_resume_from_directory(
-#             profile_dir, job, output_dir, context_note_filename
-#         )
-#     )
 
 
 # =============================================================================

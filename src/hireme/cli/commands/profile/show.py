@@ -16,7 +16,6 @@ def show_profile(
     ] = None,
 ):
     """Display a summary of the current profile data."""
-    from rich import print_json
     from rich.console import Console, Group
     from rich.json import JSON
     from rich.panel import Panel

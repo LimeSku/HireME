@@ -5,7 +5,7 @@ These are used for API/CLI responses, separate from SQLAlchemy models.
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from hireme.db.database import ApplicationStatus, JobSource
 

@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -84,6 +83,6 @@ def delete(
             )
         )
         set_profile(profile="default")
-        console.print(f"[green]Reverted to default profile.[/green]")
+        console.print("[green]Reverted to default profile.[/green]")
     else:
-        console.print(f"[yellow]Deletion cancelled.[/yellow]")
+        console.print("[yellow]Deletion cancelled.[/yellow]")

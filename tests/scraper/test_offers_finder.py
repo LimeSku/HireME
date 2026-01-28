@@ -1,7 +1,6 @@
 """Tests for offers_finder.py - job search functionality."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -18,7 +17,7 @@ from hireme.scraper.offers_finder import (
     search_jobs_async,
     search_wttj_async,
 )
-from hireme.scraper.playwright_scraper import BrowserManager, get_cache
+from hireme.scraper.playwright_scraper import BrowserManager
 
 # =============================================================================
 # JobSearchResult Tests

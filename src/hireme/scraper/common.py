@@ -22,7 +22,6 @@ Migration guide:
 import warnings
 
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
 
 

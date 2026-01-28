@@ -3,8 +3,8 @@
 Provides commands to view, search, and manage job offers, resumes, and applications.
 """
 
-from datetime import datetime
-from pathlib import Path
+# from datetime import datetime
+# from pathlib import Path
 from typing import Annotated, Optional
 
 import structlog
@@ -15,7 +15,7 @@ from rich.table import Table
 
 from hireme.db import (
     ApplicationStatus,
-    JobSource,
+    # JobSource,
     get_db,
 )
 
@@ -328,7 +328,7 @@ def update_application(
             f"[green]Application for job {job_id} updated to '{status}'.[/green]"
         )
     else:
-        console.print(f"[red]Could not update application.[/red]")
+        console.print("[red]Could not update application.[/red]")
 
 
 # =============================================================================

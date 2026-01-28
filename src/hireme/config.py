@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from pydantic import DirectoryPath, Field, computed_field, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()

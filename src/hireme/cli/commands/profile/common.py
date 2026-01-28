@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -59,12 +58,20 @@ def select_profile(console: Console) -> str:
     console = Console()
 
     profile_names = get_profile_names()
+    default_profile = cfg.default_profile_dir.name if cfg.default_profile_dir else None
+
     if not profile_names:
         typer.echo("No profiles found.")
         raise typer.Exit(code=1)
 
     console.print("Select a profile:")
-    profile_name: str = select(profile_names, return_index=False)  # type: ignore
+    profile_name: str = select(
+        profile_names,
+        cursor_index=profile_names.index(default_profile)
+        if default_profile in profile_names
+        else 0,
+        return_index=False,
+    )  # type: ignore
     # return find_profile_dir_by_name(profile_name)  # type: ignore
     return profile_name
 

@@ -12,7 +12,7 @@ import structlog
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
-from hireme.scraper.playwright_scraper import BrowserManager, ScraperConfig
+from hireme.scraper.playwright_scraper import BrowserManager
 
 logger = structlog.get_logger(logger_name=__name__)
 

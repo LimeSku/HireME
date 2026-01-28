@@ -112,10 +112,8 @@ async def _generate_resume_from_db(
     output_dir: Path,
 ):
     """Generate resumes from jobs stored in database."""
-    from hireme.agents.resume_agent import (
-        generate_resume,
-        load_user_context_from_directory,
-    )
+    from hireme.agents.resume_agent import generate_resume
+    from hireme.utils.common import load_user_context_from_directory
 
     console = Console()
     db = get_db()
@@ -221,10 +219,8 @@ async def _generate_resume_from_files(
 ):
     """Async implementation of resume generation."""
 
-    from hireme.agents.resume_agent import (
-        generate_resume,
-        load_user_context_from_directory,
-    )
+    from hireme.agents.resume_agent import generate_resume
+    from hireme.utils.common import load_user_context_from_directory
 
     console = Console()
     # Determine job file path

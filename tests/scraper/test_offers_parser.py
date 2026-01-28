@@ -1,7 +1,6 @@
 """Tests for offers_parser.py - job page parsing and text cleaning."""
 
-import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
