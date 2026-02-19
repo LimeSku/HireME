@@ -27,3 +27,5 @@ src/hireme/beta/
 !tests/.gitkeep
 dev-notes.md
 .hireme2
+dev-m4.env
+dev.env

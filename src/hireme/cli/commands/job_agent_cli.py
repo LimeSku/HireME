@@ -68,7 +68,7 @@ async def _find_jobs(
 ):
     """Find jobs and optionally save to database."""
     from rich.panel import Panel
-    from rich.progress import track
+    from rich.progress import Progress, SpinnerColumn, TextColumn, track
 
     from hireme.agents.job_agent import (
         SAMPLE_POSTING,
@@ -80,80 +80,95 @@ async def _find_jobs(
     console.print(Panel(f"Job Search - Mode: {mode}", style="bold blue"))
 
     job_offers: list[dict[str, str]] = []
-
-    if mode == "testing":
-        console.print(Panel("Using sample job posting for extraction.", style="yellow"))
-        job_offers = [{"url": "sample_url", "content": SAMPLE_POSTING}]
-    else:
-        console.print(Panel("Fetching live job postings...", style="yellow"))
-        job_urls = await get_job_urls_async(
-            query, location=location, max_results_per_source=max_results_per_source
-        )
-        console.print(f"Found {len(job_urls)} job URLs to process.")
-
-        for i, url in track(
-            enumerate(job_urls),
-            total=len(job_urls),
-            description="Fetching job postings...",
-        ):
-            job_posting = await get_job_page_async(url)
-            if job_posting:
-                job_offers.append({"url": url, "content": job_posting})
-
-    # Process and extract job details
-    if save_to_db:
-        from hireme.db import get_db
-
-        db = get_db()
-    else:
-        db = None
-    results_count = 0
-
-    for posting in track(job_offers, description="Extracting job details..."):
-        url = posting.get("url", "")
-        content = posting["content"]
-
-        result = await extract_job(content)
-
-        if isinstance(result, JobDetails):
-            results_count += 1
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        if mode == "testing":
             console.print(
-                f"[green]✓ Extracted: {result.title} @ {result.company.name}[/green]"
+                Panel("Using sample job posting for extraction.", style="yellow")
             )
-
-            # Save to database
-            if db:
-                from hireme.db import JobSource
-
-                job = db.add_job_offer(
-                    title=result.title,
-                    company_name=result.company.name,
-                    url=url if url != "sample_url" else None,
-                    source=JobSource.INDEED,  # TODO: detect source from URL
-                    location=result.location,
-                    raw_text=content,
-                )
-                db.mark_job_processed(job.id, result.model_dump())
-                console.print(f"[dim]  → Saved to database (ID: {job.id})[/dim]")
-
-            # Legacy: save to files
-            if export_dir:
-                from hireme.utils.common import write_job_offer_to_json
-
-                processed_dir = export_dir / "processed"
-                raw_dir = export_dir / "raw"
-                processed_dir.mkdir(parents=True, exist_ok=True)
-                raw_dir.mkdir(parents=True, exist_ok=True)
-
-                write_job_offer_to_json(url, result.model_dump(), processed_dir)
-                raw_filename = f"job_{result.title}-{result.company.name}.txt"
-                (raw_dir / raw_filename).write_text(content)
+            job_offers = [{"url": "sample_url", "content": SAMPLE_POSTING}]
         else:
-            console.print(f"[red]✗ Extraction failed: {result.reason}[/red]")
+            console.print(Panel("Fetching live job postings...", style="yellow"))
+            job_urls = await get_job_urls_async(
+                query, location=location, max_results_per_source=max_results_per_source
+            )
+            console.print(f"Found {len(job_urls)} job URLs to process.")
 
-    console.print(
-        Panel(
-            f"Completed: {results_count}/{len(job_offers)} jobs extracted",
-            style="green" if results_count > 0 else "red",
-        )
-    )
+            # for i, url in track(
+            #     enumerate(job_urls),
+            #     total=len(job_urls),
+            #     description="Fetching job postings...",
+            # ):
+            progress.add_task("Fetching job postings...", total=len(job_urls))
+            for url in job_urls:
+                job_posting = await get_job_page_async(url)
+                if job_posting:
+                    job_offers.append({"url": url, "content": job_posting})
+
+            # Process and extract job details
+            if save_to_db:
+                from hireme.db import get_db
+
+                db = get_db()
+            else:
+                db = None
+            results_count = 0
+
+            task = progress.add_task("Extracting job details...", total=len(job_offers))
+
+            # for posting in track(job_offers, description="Extracting job details..."):
+            logger.info(f"Processing {len(job_offers)} job postings")
+            for posting in job_offers:
+                # progress.advance(task)
+                url = posting.get("url", "")
+                content = posting["content"]
+
+                result = await extract_job(content)
+
+                if isinstance(result, JobDetails):
+                    results_count += 1
+                    console.print(
+                        f"[green]✓ Extracted: {result.title} @ {result.company.name}[/green]"
+                    )
+
+                    # Save to database
+                    if db:
+                        from hireme.db import JobSource
+
+                        job = db.add_job_offer(
+                            title=result.title,
+                            company_name=result.company.name,
+                            url=url if url != "sample_url" else None,
+                            source=JobSource.INDEED,  # TODO: detect source from URL
+                            location=result.location,
+                            raw_text=content,
+                        )
+                        db.mark_job_processed(job.id, result.model_dump())
+                        console.print(
+                            f"[dim]  → Saved to database (ID: {job.id})[/dim]"
+                        )
+
+                    # Legacy: save to files
+                    if export_dir:
+                        from hireme.utils.common import write_job_offer_to_json
+
+                        processed_dir = export_dir / "processed"
+                        raw_dir = export_dir / "raw"
+                        processed_dir.mkdir(parents=True, exist_ok=True)
+                        raw_dir.mkdir(parents=True, exist_ok=True)
+
+                        write_job_offer_to_json(url, result.model_dump(), processed_dir)
+                        raw_filename = f"job_{result.title}-{result.company.name}.txt"
+                        (raw_dir / raw_filename).write_text(content)
+                else:
+                    console.print(f"[red]✗ Extraction failed: {result.reason}[/red]")
+
+            console.print(
+                Panel(
+                    f"Completed: {results_count}/{len(job_offers)} jobs extracted",
+                    style="green" if results_count > 0 else "red",
+                )
+            )

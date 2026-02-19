@@ -10,7 +10,7 @@ app = typer.Typer()
 
 @app.command("show")
 def show_profile(
-    profile_dir: Annotated[
+    _profile_dir: Annotated[
         Path | None,
         typer.Option("--path", "-p", help="Path to the profile directory to show."),
     ] = None,
@@ -24,8 +24,7 @@ def show_profile(
 
     console = Console()
 
-    if profile_dir is None:
-        profile_dir = cfg.default_profile_dir
+    profile_dir: Path = _profile_dir if _profile_dir else cfg.default_profile_dir
 
     if not profile_dir.exists() or not profile_dir.is_dir():
         console.print(f"[red]Profile directory does not exist: {profile_dir}[/red]")

@@ -51,7 +51,8 @@ def get_resume_agent() -> Agent[None, TailoredResume | GenerationFailed]:
     global _resume_agent
     if _resume_agent is None:
         _resume_agent = Agent(
-            model=get_llm_model("qwen3:14b"),
+            model=get_llm_model("mistral-medium-latest"),
+            # model=get_llm_model("default"),
             output_type=TailoredResume | GenerationFailed,
             retries=3,
             instructions=SystemPrompts.resume_agent_system_prompt(),

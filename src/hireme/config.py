@@ -75,7 +75,11 @@ class Config(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
+    mistral_api_key: Optional[str] = Field(
+        default=None,
+        description="API key for Mistral models (if using mistral-medium3).",
+        alias="MISTRAL_API_KEY",
+    )
     ollama: OllamaConfig = Field(
         default_factory=OllamaConfig,
         description="Configuration for Ollama API.",

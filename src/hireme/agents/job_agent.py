@@ -183,7 +183,8 @@ def get_job_extraction_agent() -> Agent[None, ExtractionFailed | JobDetails]:
     global _job_extraction_agent
     if _job_extraction_agent is None:
         _job_extraction_agent = Agent(
-            model=get_llm_model("mistral-nemo:12b"),
+            model=get_llm_model("mistral-medium-latest"),
+            # model=get_llm_model("default"),
             output_type=JobDetails | ExtractionFailed,
             retries=3,
         )
