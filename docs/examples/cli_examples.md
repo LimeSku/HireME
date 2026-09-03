@@ -1,5 +1,24 @@
 # CLI examples
 
+## End-to-end agentic demo
+
+```bash
+hireme profile new default --example
+hireme run start "Python Developer" --location Paris --mode testing
+```
+
+The run stops after evidence-backed matching so a person can approve the top
+offer. The timeline, scores, evidence, token usage and artifacts remain
+inspectable:
+
+```bash
+hireme run list
+hireme run show 1
+hireme run resume 1 --yes
+```
+
+For a fully unattended demo, pass `--yes` to `run start`.
+
 ## Extract the packaged sample
 
 ```bash

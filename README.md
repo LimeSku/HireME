@@ -45,6 +45,23 @@ hireme profile new default --example
 hireme profile show
 ```
 
+Run the complete agentic workflow:
+
+```bash
+hireme run start "Python Developer" --location Paris --mode testing
+```
+
+The orchestrator extracts offers, ranks them with quoted candidate/job evidence,
+pauses for human approval, generates the resume, and records every checkpoint in
+SQLite. Use `--yes` for an unattended demo. Interrupted runs can be inspected and
+resumed without repeating completed stages:
+
+```bash
+hireme run list
+hireme run show 1
+hireme run resume 1
+```
+
 Find live offers, extract them and save them to SQLite:
 
 ```bash

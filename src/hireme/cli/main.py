@@ -10,6 +10,7 @@ from hireme.cli.commands.db_cli import app as db_cli
 from hireme.cli.commands.job_agent_cli import app as job_cli
 from hireme.cli.commands.profile import app as profile_cli
 from hireme.cli.commands.resume_agent_cli import app as resume_cli
+from hireme.cli.commands.run_cli import app as run_cli
 from hireme.config import cfg
 
 app = typer.Typer(
@@ -19,6 +20,7 @@ app.add_typer(resume_cli, name="resume")
 app.add_typer(job_cli, name="job")
 app.add_typer(profile_cli, name="profile")
 app.add_typer(db_cli, name="db")
+app.add_typer(run_cli, name="run")
 
 
 def _configure_logging(verbose: bool) -> None:
