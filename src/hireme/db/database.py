@@ -6,8 +6,8 @@ Simple SQLite-based database for tracking:
 - Application status and history
 """
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    event,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -32,13 +33,14 @@ from sqlalchemy.orm import (
 )
 
 from hireme.config import cfg
+from hireme.utils.common import normalize_url
 
 # =============================================================================
 # Enums
 # =============================================================================
 
 
-class ApplicationStatus(str, Enum):
+class ApplicationStatus(StrEnum):
     """Status of a job application."""
 
     NOT_APPLIED = "not_applied"
@@ -52,7 +54,7 @@ class ApplicationStatus(str, Enum):
     WITHDRAWN = "withdrawn"
 
 
-class JobSource(str, Enum):
+class JobSource(StrEnum):
     """Source where the job was found."""
 
     INDEED = "indeed"
@@ -81,30 +83,28 @@ class JobOffer(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     # Source information
-    url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     source: Mapped[str] = mapped_column(String(50), default=JobSource.OTHER.value)
 
     # Job identification (used for deduplication)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     company_name: Mapped[str] = mapped_column(String(500), nullable=False)
-    location: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Raw data storage
-    raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    raw_file_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_file_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     # Processed data (JSON blob of JobDetails)
-    processed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    processed_file_path: Mapped[Optional[str]] = mapped_column(
-        String(1024), nullable=True
-    )
+    processed_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    processed_file_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Timestamps
     discovered_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, nullable=False
     )
-    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_updated: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, onupdate=datetime.now
     )
@@ -140,18 +140,16 @@ class GeneratedResume(Base):
     )
 
     # Generated files
-    yaml_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    pdf_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    yaml_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    pdf_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     # Resume data (JSON blob of TailoredResume)
-    resume_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    resume_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Generation metadata
-    model_used: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    generation_time_seconds: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True
-    )
-    tokens_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    generation_time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Timestamps
     generated_at: Mapped[datetime] = mapped_column(
@@ -159,10 +157,8 @@ class GeneratedResume(Base):
     )
 
     # Quality/feedback
-    user_rating: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True
-    )  # 1-5 stars
-    user_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5 stars
+    user_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_selected: Mapped[bool] = mapped_column(
         Boolean, default=False
     )  # Selected version for application
@@ -192,36 +188,32 @@ class Application(Base):
     )
 
     # Application details
-    applied_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    applied_via: Mapped[Optional[str]] = mapped_column(
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    applied_via: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )  # email, website, linkedin, etc.
-    cover_letter_path: Mapped[Optional[str]] = mapped_column(
-        String(1024), nullable=True
-    )
-    resume_used_id: Mapped[Optional[int]] = mapped_column(
+    cover_letter_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    resume_used_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("generated_resumes.id"), nullable=True
     )
 
     # Follow-up tracking
-    follow_up_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_contact_date: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
-    )
+    follow_up_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_contact_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Interview tracking
-    interview_dates: Mapped[Optional[list]] = mapped_column(
+    interview_dates: Mapped[list | None] = mapped_column(
         JSON, nullable=True
     )  # List of interview dates/notes
 
     # Outcome
     response_received: Mapped[bool] = mapped_column(Boolean, default=False)
-    response_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    offer_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    response_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_details: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Notes
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -253,7 +245,15 @@ class DatabaseManager:
             db_path = cfg.hireme_dir / "hireme.db"
 
         self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{db_path}", echo=False)
+
+        @event.listens_for(self.engine, "connect")
+        def enable_foreign_keys(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
         self._create_tables()
 
     def _create_tables(self):
@@ -280,23 +280,23 @@ class DatabaseManager:
     ) -> JobOffer:
         """Add a new job offer to the database."""
         with self.get_session() as session:
-            # Check for duplicates
-            existing = (
-                session.query(JobOffer)
-                .filter(
+            normalized_url = normalize_url(url) if url else None
+            query = session.query(JobOffer).filter(JobOffer.is_archived.is_(False))
+            if normalized_url:
+                existing = query.filter(JobOffer.url == normalized_url).first()
+            else:
+                existing = query.filter(
                     JobOffer.title == title,
                     JobOffer.company_name == company_name,
-                    JobOffer.is_archived == False,
-                )
-                .first()
-            )
+                    JobOffer.location == location,
+                ).first()
             if existing:
                 return existing
 
             job = JobOffer(
                 title=title,
                 company_name=company_name,
-                url=url,
+                url=normalized_url,
                 source=source.value,
                 location=location,
                 raw_text=raw_text,
@@ -320,7 +320,7 @@ class DatabaseManager:
                 job.processed_data = processed_data
                 job.processed_file_path = processed_file_path
                 job.is_processed = True
-                job.processed_at = datetime.now(timezone.utc)
+                job.processed_at = datetime.now(UTC)
                 session.commit()
                 session.refresh(job)
             return job
@@ -335,9 +335,9 @@ class DatabaseManager:
                 selectinload(JobOffer.application),
             )
             if not include_archived:
-                query = query.filter(JobOffer.is_archived == False)
+                query = query.filter(JobOffer.is_archived.is_(False))
             if only_processed:
-                query = query.filter(JobOffer.is_processed == True)
+                query = query.filter(JobOffer.is_processed.is_(True))
             jobs = query.order_by(JobOffer.discovered_at.desc()).all()
             # Detach from session to allow access after session closes
             session.expunge_all()
@@ -374,7 +374,7 @@ class DatabaseManager:
                 )
             )
             if not include_archived:
-                q = q.filter(JobOffer.is_archived == False)
+                q = q.filter(JobOffer.is_archived.is_(False))
             jobs = q.all()
             session.expunge_all()
             return jobs
@@ -471,6 +471,8 @@ class DatabaseManager:
     ) -> Application:
         """Create an application record for a job."""
         with self.get_session() as session:
+            if session.get(JobOffer, job_offer_id) is None:
+                raise ValueError(f"Job offer {job_offer_id} does not exist.")
             # Check if application already exists
             existing = (
                 session.query(Application)
@@ -505,12 +507,10 @@ class DatabaseManager:
             if app:
                 app.status = status.value
                 if status == ApplicationStatus.APPLIED:
-                    app.applied_at = datetime.now(timezone.utc)
+                    app.applied_at = datetime.now(UTC)
                 if notes:
-                    app.notes = (
-                        app.notes or ""
-                    ) + f"\n[{datetime.now(timezone.utc)}] {notes}"
-                app.updated_at = datetime.now(timezone.utc)
+                    app.notes = (app.notes or "") + f"\n[{datetime.now(UTC)}] {notes}"
+                app.updated_at = datetime.now(UTC)
                 session.commit()
                 session.refresh(app)
             return app
@@ -539,7 +539,7 @@ class DatabaseManager:
                 stats[status.value] = count
             stats["total_jobs"] = session.query(JobOffer).count()
             stats["processed_jobs"] = (
-                session.query(JobOffer).filter(JobOffer.is_processed == True).count()
+                session.query(JobOffer).filter(JobOffer.is_processed.is_(True)).count()
             )
             stats["total_resumes"] = session.query(GeneratedResume).count()
             return stats

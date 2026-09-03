@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from urllib.parse import quote_plus, urljoin
 
 import structlog
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
@@ -89,7 +90,7 @@ async def _extract_job_card(
                     source=source,
                 )
             )
-        except Exception:
+        except PlaywrightError:
             continue
 
     return results
@@ -140,7 +141,7 @@ async def search_indeed_async(
     except PlaywrightTimeout:
         logger.error("Indeed: Timeout waiting for results")
         return []
-    except Exception as e:
+    except PlaywrightError as e:
         logger.error("Indeed: Error", error=str(e))
         return []
 
@@ -200,7 +201,7 @@ async def search_wttj_async(
     except PlaywrightTimeout:
         logger.error("WTTJ: Timeout waiting for results")
         return []
-    except Exception as e:
+    except PlaywrightError as e:
         logger.error("WTTJ: Error", error=str(e))
         return []
 

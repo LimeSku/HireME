@@ -5,7 +5,7 @@ Provides commands to view, search, and manage job offers, resumes, and applicati
 
 # from datetime import datetime
 # from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import structlog
 import typer
@@ -156,7 +156,7 @@ app.add_typer(resumes_app, name="resumes")
 @resumes_app.command("list")
 def list_resumes(
     job_id: Annotated[
-        Optional[int], typer.Option("--job", help="Filter by job ID")
+        int | None, typer.Option("--job", help="Filter by job ID")
     ] = None,
 ):
     """List generated resumes."""
@@ -222,7 +222,7 @@ def select_resume(
 def rate_resume(
     resume_id: Annotated[int, typer.Argument(help="Resume ID to rate")],
     rating: Annotated[int, typer.Argument(help="Rating (1-5)")],
-    notes: Annotated[Optional[str], typer.Option(help="Additional notes")] = None,
+    notes: Annotated[str | None, typer.Option(help="Additional notes")] = None,
 ):
     """Rate a generated resume."""
     if rating < 1 or rating > 5:
@@ -247,7 +247,7 @@ app.add_typer(apps_app, name="apps")
 @apps_app.command("list")
 def list_applications(
     status: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--status", help="Filter by status"),
     ] = None,
 ):
@@ -307,20 +307,24 @@ def list_applications(
 def update_application(
     job_id: Annotated[int, typer.Argument(help="Job ID")],
     status: Annotated[str, typer.Argument(help="New status")],
-    notes: Annotated[Optional[str], typer.Option(help="Notes")] = None,
+    notes: Annotated[str | None, typer.Option(help="Notes")] = None,
 ):
     """Update application status."""
     try:
         app_status = ApplicationStatus(status)
-    except ValueError:
+    except ValueError as error:
         valid = ", ".join([s.value for s in ApplicationStatus])
         console.print(f"[red]Invalid status. Valid options: {valid}[/red]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from error
 
     db = get_db()
 
     # Create application if it doesn't exist
-    db.create_application(job_id)
+    try:
+        db.create_application(job_id)
+    except ValueError as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(code=1) from error
     result = db.update_application_status(job_id, app_status, notes)
 
     if result:
@@ -431,8 +435,8 @@ def import_existing():
                 db.mark_job_processed(job.id, job_data, str(f))
                 imported += 1
 
-            except Exception as e:
-                console.print(f"[yellow]Error importing {f.name}: {e}[/yellow]")
+            except (OSError, json.JSONDecodeError, AttributeError, TypeError) as error:
+                console.print(f"[yellow]Error importing {f.name}: {error}[/yellow]")
 
     console.print(f"[green]Imported {imported} job(s) into database.[/green]")
 

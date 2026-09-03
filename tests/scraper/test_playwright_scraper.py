@@ -74,14 +74,12 @@ class TestURLCache:
         assert cache.has("https://example.com/page") is False
 
     def test_cache_normalization(self):
-        """Test URL normalization - trailing slashes and fragments ignored."""
+        """Test tracking parameters are ignored but functional ones are preserved."""
         cache = URLCache()
-        cache.set("https://example.com/page/", "content")
+        cache.set("https://example.com/page/?job=1&utm_source=test#details", "content")
 
-        # Should match without trailing slash
-        assert cache.get("https://example.com/page") == "content"
-        # Should match with trailing slash
-        assert cache.get("https://example.com/page/") == "content"
+        assert cache.get("https://example.com/page?job=1") == "content"
+        assert cache.get("https://example.com/page?job=2") is None
 
     def test_cache_max_size(self):
         """Test cache eviction when max size is reached."""
@@ -391,6 +389,22 @@ class TestGetMultiplePages:
 
             # All 5 should complete
             assert len(call_times) == 5
+
+    async def test_uses_per_url_wait_selectors(self):
+        urls = ["https://example.com/one", "https://example.com/two"]
+        with patch(
+            "hireme.scraper.playwright_scraper.get_page_content",
+            new_callable=AsyncMock,
+            return_value="content",
+        ) as get_content:
+            await get_multiple_pages(
+                urls,
+                wait_selector="main",
+                wait_selectors={urls[0]: "#job-description"},
+            )
+
+        selectors = {call.args[0]: call.args[1] for call in get_content.await_args_list}
+        assert selectors == {urls[0]: "#job-description", urls[1]: "main"}
 
 
 # =============================================================================

@@ -11,15 +11,17 @@ class SystemPrompts:
     @staticmethod
     @lru_cache(maxsize=2)
     def resume_agent_system_prompt() -> str:
-        with open(cfg.prompts_dir / "resume_agent_system_prompt.md", "r") as f:
-            prompt = f.read()
+        prompt = (cfg.prompts_dir / "resume_agent_system_prompt.md").read_text(
+            encoding="utf-8"
+        )
         logger.debug("Loaded custom resume agent system prompt")
         return prompt
 
     @staticmethod
     @lru_cache(maxsize=2)
     def job_agent_system_prompt() -> str:
-        with open(cfg.prompts_dir / "job_agent_system_prompt.md", "r") as f:
-            prompt = f.read()
+        prompt = (cfg.prompts_dir / "job_agent_system_prompt.md").read_text(
+            encoding="utf-8"
+        )
         logger.debug("Loaded custom job agent system prompt")
         return prompt

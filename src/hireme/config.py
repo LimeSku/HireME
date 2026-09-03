@@ -1,174 +1,80 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
-from dotenv import load_dotenv
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-load_dotenv()
-
-# =============================================================================
-# API Configurations
-# =============================================================================
-
-
-class OllamaConfig(BaseSettings):
-    """Ollama API configuration."""
-
-    model: str = Field(
-        default="qwen2.5:7b-instruct",
-        description="The Ollama model to use.",
-        alias="OLLAMA_FALLBACK_MODEL",
-    )
-    base_url: Optional[str] = Field(
-        default="http://localhost:11434/v1",
-        description="The base URL for the Ollama API.",
-        alias="OLLAMA_BASE_URL",
-    )
-    timeout: Optional[int] = Field(
-        default=60,
-        description="Timeout in seconds for API requests.",
-    )
-
-
-class OpenAIConfig(BaseSettings):
-    """OpenAI API configuration."""
-
-    api_key: str = Field(..., description="The OpenAI API key.")
-    model: str = Field("gpt-4", description="The OpenAI model to use.")
-    temperature: Optional[float] = Field(
-        default=0.7,
-        description="Sampling temperature for the model.",
-    )
-    max_tokens: Optional[int] = Field(
-        default=2048,
-        description="Maximum number of tokens to generate.",
-    )
-
-
-# class AgentModelsConfig(BaseSettings):
-#     """Configuration for models used by different agents."""
-
-#     job_offer_model: str = Field(
-#         default="qwen2.5:7b-instruct",
-#         description="Model used for job offer extraction.",
-#         alias="JOB_OFFER_MODEL",
-#     )
-#     resume_model: str = Field(
-#         default="qwen2.5:7b-instruct",
-#         description="Model used for resume generation.",
-#         alias="RESUME_MODEL",
-#     )
-
-
-# =============================================================================
-# Main Application Config
-# =============================================================================
 
 
 class Config(BaseSettings):
-    """Main application configuration."""
+    """HireME configuration loaded from environment variables and ``.env``."""
 
     model_config = SettingsConfigDict(
         env_prefix="HIREME_",
         env_file=".env",
         env_file_encoding="utf-8",
+        env_ignore_empty=True,
         extra="ignore",
-    )
-    mistral_api_key: Optional[str] = Field(
-        default=None,
-        description="API key for Mistral models (if using mistral-medium3).",
-        alias="MISTRAL_API_KEY",
-    )
-    ollama: OllamaConfig = Field(
-        default_factory=OllamaConfig,
-        description="Configuration for Ollama API.",
+        populate_by_name=True,
     )
 
-    openai: Optional[OpenAIConfig] = Field(
-        default=None,
-        description="Configuration for OpenAI API.",
+    llm_provider: Literal["ollama", "mistral", "openai"] | None = None
+    llm_model: str | None = None
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1",
+        validation_alias="OLLAMA_BASE_URL",
     )
+    mistral_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="MISTRAL_API_KEY",
+    )
+    openai_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="OPENAI_API_KEY",
+    )
+
+    logfire_enabled: bool = False
+    logfire_include_content: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    project_root: Path = Field(
-        default=Path.cwd(),
-        description="Root directory for HireME project.",
-    )
-
-    assets_dir: Path = Field(
-        default=Path.cwd() / "assets",
-        description="Directory to store asset files.",
-    )
-    prompts_dir: Path = Field(
-        default=Path.cwd() / "assets" / "prompts",
-        description="Directory to store prompt templates.",
-    )
-    # =============================================================================
-    # project directories configuration
-    # =============================================================================
-
     hireme_dir: Path = Field(
-        default=Path.cwd() / ".hireme",
-        description="Directory to store job offers data.",
+        default_factory=lambda: Path.cwd() / ".hireme",
+        validation_alias="HIREME_HOME",
     )
-    job_offers_dir: Path = Field(
-        default=Path.cwd() / ".hireme" / "job_offers",
-        description="Directory to store job offers data.",
-    )
-
-    profiles_dir: Path = Field(
-        default=Path.cwd() / ".hireme" / "profiles",
-        description="Directory to store different user profiles data.",
+    configured_default_profile: Path | None = Field(
+        default=None,
+        validation_alias="HIREME_DEFAULT_PROFILE_PATH",
+        exclude=True,
     )
 
-    default_profile_dir: Path = Field(
-        default=Path.cwd() / ".hireme" / "profiles" / "default",
-        description="Profile directory used by default.",
-        alias="HIREME_DEFAULT_PROFILE_PATH",
-    )
+    @property
+    def assets_dir(self) -> Path:
+        return Path(__file__).resolve().parent / "assets"
 
-    @model_validator(mode="after")
-    def create_dirs(self):
-        dirs_to_create: list[Path] = [
+    @property
+    def prompts_dir(self) -> Path:
+        return self.assets_dir / "prompts"
+
+    @property
+    def job_offers_dir(self) -> Path:
+        return self.hireme_dir / "job_offers"
+
+    @property
+    def profiles_dir(self) -> Path:
+        return self.hireme_dir / "profiles"
+
+    @property
+    def default_profile_dir(self) -> Path:
+        return self.configured_default_profile or self.profiles_dir / "default"
+
+    def ensure_directories(self) -> None:
+        """Create runtime data directories when a command needs them."""
+        for directory in (
             self.hireme_dir,
-            self.job_offers_dir,
             self.job_offers_dir / "raw",
             self.job_offers_dir / "processed",
-            self.default_profile_dir,
             self.profiles_dir,
-        ]
-        for dir_path in dirs_to_create:
-            dir_path.mkdir(parents=True, exist_ok=True)
-        return self
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
 
 
-# Global config instance - lazy loaded
-_cfg: Config | None = None
-
-
-def get_config() -> Config:
-    """Get or create the config instance lazily."""
-    global _cfg
-    if _cfg is None:
-        _cfg = Config()
-    return _cfg
-
-
-class _LazyConfig:
-    """Lazy proxy for backwards compatibility with 'from hireme.config import cfg'.
-
-    Delays Config instantiation (and directory creation) until first attribute access.
-    """
-
-    def __getattr__(self, name):
-        return getattr(get_config(), name)
-
-    def __repr__(self):
-        return repr(get_config())
-
-
-cfg = _LazyConfig()
-# print("Configuration loaded:")
-# for field_name, field_value in cfg.model_dump().items():
-#     print(f"\t{field_name}: {field_value}")
+cfg = Config()

@@ -1,6 +1,6 @@
 """Tests for offers_parser.py - job page parsing and text cleaning."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -80,7 +80,7 @@ class TestCleanText:
         """Test that empty lines are removed."""
         text = "Line 1\n\n\nLine 2\n\nLine 3"
         result = clean_text(text)
-        lines = [l for l in result.split("\n") if l.strip()]
+        lines = [line for line in result.split("\n") if line.strip()]
         assert len(lines) == 3
 
     def test_strips_each_line(self):
@@ -210,26 +210,40 @@ class TestGetJobPagesAsync:
     @pytest.fixture(autouse=True)
     async def cleanup(self):
         """Clear cache after each test."""
-        yield
+        with (
+            patch.object(BrowserManager, "initialize", new_callable=AsyncMock),
+            patch.object(BrowserManager, "close", new_callable=AsyncMock),
+        ):
+            yield
         get_cache().clear()
-        await BrowserManager.close()
 
     async def test_returns_dict_of_results(self):
         """Test that results are returned as a dictionary."""
+        urls = [
+            "https://www.indeed.com/job/1",
+            "https://example.com/job2",
+        ]
         with patch(
             "hireme.scraper.offers_parser.get_multiple_pages"
         ) as mock_get_multiple:
             mock_get_multiple.return_value = {
-                "https://example.com/job1": "Content 1",
+                "https://www.indeed.com/job/1": "Content 1",
                 "https://example.com/job2": "Content 2",
             }
 
-            results = await get_job_pages_async(
-                ["https://example.com/job1", "https://example.com/job2"]
-            )
+            results = await get_job_pages_async(urls)
 
             assert isinstance(results, dict)
             assert len(results) == 2
+            mock_get_multiple.assert_awaited_once_with(
+                urls,
+                max_concurrent=3,
+                use_cache=True,
+                wait_selectors={
+                    "https://www.indeed.com/job/1": "#jobDescriptionText",
+                    "https://example.com/job2": None,
+                },
+            )
 
     async def test_cleans_content_in_results(self):
         """Test that content in results is cleaned."""
@@ -271,32 +285,53 @@ class TestSyncWrappers:
 
     def test_get_page_text_calls_async(self):
         """Test that sync wrapper calls async version."""
-        with patch("hireme.scraper.offers_parser.asyncio.run") as mock_run:
+        pending = object()
+        with (
+            patch(
+                "hireme.scraper.offers_parser.get_page_text_async",
+                new=MagicMock(return_value=pending),
+            ),
+            patch("hireme.scraper.offers_parser.asyncio.run") as mock_run,
+        ):
             mock_run.return_value = "Content"
 
             result = get_page_text("https://example.com/job")
 
-            mock_run.assert_called_once()
+            mock_run.assert_called_once_with(pending)
             assert result == "Content"
 
     def test_get_job_page_calls_async(self):
         """Test that sync wrapper calls async version."""
-        with patch("hireme.scraper.offers_parser.asyncio.run") as mock_run:
+        pending = object()
+        with (
+            patch(
+                "hireme.scraper.offers_parser.get_job_page_async",
+                new=MagicMock(return_value=pending),
+            ),
+            patch("hireme.scraper.offers_parser.asyncio.run") as mock_run,
+        ):
             mock_run.return_value = "Job content"
 
             result = get_job_page("https://example.com/job")
 
-            mock_run.assert_called_once()
+            mock_run.assert_called_once_with(pending)
             assert result == "Job content"
 
     def test_get_page_text_converts_timeout(self):
         """Test that timeout is converted from seconds to milliseconds."""
-        with patch("hireme.scraper.offers_parser.get_page_text_async") as mock_async:
-            with patch("hireme.scraper.offers_parser.asyncio.run") as mock_run:
-                mock_run.return_value = "Content"
+        pending = object()
+        with (
+            patch(
+                "hireme.scraper.offers_parser.get_page_text_async",
+                new=MagicMock(return_value=pending),
+            ) as get_page_text_async,
+            patch("hireme.scraper.offers_parser.asyncio.run") as mock_run,
+        ):
+            mock_run.return_value = "Content"
 
-                # Call with 10 seconds timeout
-                get_page_text("https://example.com/job", timeout=10)
+            get_page_text("https://example.com/job", timeout=10)
 
-                # Verify async was called with 10000ms
-                mock_run.assert_called_once()
+            get_page_text_async.assert_called_once_with(
+                "https://example.com/job", None, 10_000
+            )
+            mock_run.assert_called_once_with(pending)

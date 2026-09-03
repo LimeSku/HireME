@@ -6,9 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Configure pytest-asyncio
-pytest_plugins = ("pytest_asyncio",)
-
 
 @pytest.fixture
 def temp_dir():
