@@ -9,10 +9,9 @@ Provides optimized browser management with:
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import AsyncGenerator
-from urllib.parse import urlparse
 
 import structlog
 from playwright.async_api import (
@@ -23,6 +22,11 @@ from playwright.async_api import (
     Route,
     async_playwright,
 )
+from playwright.async_api import (
+    Error as PlaywrightError,
+)
+
+from hireme.utils.common import normalize_url
 
 logger = structlog.get_logger(logger_name=__name__)
 
@@ -98,9 +102,7 @@ class URLCache:
     @staticmethod
     def _normalize_url(url: str) -> str:
         """Normalize URL for cache key."""
-        parsed = urlparse(url)
-        # Remove trailing slashes and fragments
-        return f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
+        return normalize_url(url)
 
 
 # Global cache instance
@@ -172,7 +174,7 @@ class BrowserManager:
     @asynccontextmanager
     async def get_context(
         cls, config: ScraperConfig | None = None
-    ) -> AsyncGenerator[BrowserContext, None]:
+    ) -> AsyncGenerator[BrowserContext]:
         """Get an isolated browser context.
 
         Each context has its own cookies, cache, and storage.
@@ -205,7 +207,7 @@ class BrowserManager:
     @asynccontextmanager
     async def get_page(
         cls, config: ScraperConfig | None = None
-    ) -> AsyncGenerator[Page, None]:
+    ) -> AsyncGenerator[Page]:
         """Convenience method to get a page directly."""
         async with cls.get_context(config) as context:
             page = await context.new_page()
@@ -280,7 +282,7 @@ async def get_page_content(
             if wait_selector:
                 try:
                     await page.wait_for_selector(wait_selector, timeout=timeout)
-                except Exception:
+                except PlaywrightError:
                     logger.warning(
                         "Selector not found, continuing", selector=wait_selector
                     )
@@ -294,7 +296,7 @@ async def get_page_content(
 
             return content
 
-    except Exception as e:
+    except PlaywrightError as e:
         logger.error("Failed to scrape page", url=url, error=str(e))
         return None
 
@@ -318,7 +320,7 @@ async def _extract_main_content(page: Page) -> str:
                 text = await element.inner_text()
                 if len(text) > 200:
                     return text
-        except Exception:
+        except PlaywrightError:
             continue
 
     # Fallback to body
@@ -358,7 +360,7 @@ async def get_multiple_pages(
             )
 
     # Deduplicate URLs
-    unique_urls = list(set(urls))
+    unique_urls = list(dict.fromkeys(urls))
     logger.info(
         "Fetching pages",
         total=len(urls),
