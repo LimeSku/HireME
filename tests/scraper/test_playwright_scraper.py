@@ -74,14 +74,12 @@ class TestURLCache:
         assert cache.has("https://example.com/page") is False
 
     def test_cache_normalization(self):
-        """Test URL normalization - trailing slashes and fragments ignored."""
+        """Test tracking parameters are ignored but functional ones are preserved."""
         cache = URLCache()
-        cache.set("https://example.com/page/", "content")
+        cache.set("https://example.com/page/?job=1&utm_source=test#details", "content")
 
-        # Should match without trailing slash
-        assert cache.get("https://example.com/page") == "content"
-        # Should match with trailing slash
-        assert cache.get("https://example.com/page/") == "content"
+        assert cache.get("https://example.com/page?job=1") == "content"
+        assert cache.get("https://example.com/page?job=2") is None
 
     def test_cache_max_size(self):
         """Test cache eviction when max size is reached."""

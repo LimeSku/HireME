@@ -1,6 +1,6 @@
 """Tests for offers_finder.py - job search functionality."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -448,22 +448,36 @@ class TestSyncWrappers:
 
     def test_search_jobs_calls_async(self):
         """Test that sync search_jobs calls async version."""
-        with patch("hireme.scraper.offers_finder.asyncio.run") as mock_run:
+        pending = object()
+        with (
+            patch(
+                "hireme.scraper.offers_finder.search_jobs_async",
+                new=MagicMock(return_value=pending),
+            ),
+            patch("hireme.scraper.offers_finder.asyncio.run") as mock_run,
+        ):
             mock_run.return_value = []
 
             result = search_jobs("query")
 
-            mock_run.assert_called_once()
+            mock_run.assert_called_once_with(pending)
             assert result == []
 
     def test_get_job_urls_calls_async(self):
         """Test that sync get_job_urls calls async version."""
-        with patch("hireme.scraper.offers_finder.asyncio.run") as mock_run:
+        pending = object()
+        with (
+            patch(
+                "hireme.scraper.offers_finder.get_job_urls_async",
+                new=MagicMock(return_value=pending),
+            ),
+            patch("hireme.scraper.offers_finder.asyncio.run") as mock_run,
+        ):
             mock_run.return_value = ["https://example.com/job1"]
 
             result = get_job_urls("query")
 
-            mock_run.assert_called_once()
+            mock_run.assert_called_once_with(pending)
             assert result == ["https://example.com/job1"]
 
 

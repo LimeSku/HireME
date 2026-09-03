@@ -59,7 +59,7 @@ def db_with_data(temp_db):
         },
     )
 
-    job2 = temp_db.add_job_offer(
+    temp_db.add_job_offer(
         title="Data Analyst",
         company_name="DataCo",
         location="Lyon, France",
