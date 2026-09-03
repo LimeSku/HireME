@@ -1,60 +1,61 @@
+import asyncio
 from pathlib import Path
 from typing import Annotated, Literal
 
 import structlog
 import typer
+from pydantic_ai.exceptions import AgentRunError
 from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
-# Lazy imports - moved inside functions to speed up CLI startup
-# from hireme.config import cfg
-# from hireme.db import JobSource, get_db
+from hireme.utils.providers import LLMConfigurationError
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 console = Console()
-
-app = typer.Typer(name="hireme_cli", help="Job offers agent CLI ")
+app = typer.Typer(help="Find and extract job offers")
 
 
 @app.command("find")
 def job_agent(
-    job: str = typer.Argument(..., help="Job title or keywords to search for."),
-    max_results_per_source: int = typer.Option(
-        1, help="Maximum number of job results to fetch per source."
-    ),
-    location: str = typer.Option(..., help="Location to look for jobs in."),
-    mode: Literal["testing", "scrapper"] = typer.Option(
-        "scrapper",
-        help="Mode of operation: 'testing' uses a sample job posting, 'scrapper' fetches from a URL.",
-    ),
+    job: Annotated[str, typer.Argument(help="Job title or search keywords.")],
+    location: Annotated[str, typer.Option(help="Location to search.")],
+    max_results_per_source: Annotated[
+        int,
+        typer.Option(min=1, help="Maximum results fetched from each source."),
+    ] = 1,
+    mode: Annotated[
+        Literal["testing", "scraper", "scrapper"],
+        typer.Option(help="Use the sample posting or live job boards."),
+    ] = "scraper",
     save_to_db: Annotated[
-        bool, typer.Option("--db/--no-db", help="Save results to database.")
+        bool, typer.Option("--db/--no-db", help="Save results to SQLite.")
     ] = True,
     export_dir: Annotated[
-        Path | None, typer.Option(help="Directory to save the jobs data (legacy).")
+        Path | None, typer.Option(help="Also export raw and structured files.")
     ] = None,
-):
-    """Find and extract job postings.
-
-    Searches for jobs matching the query and location, extracts structured
-    information, and saves to database (and optionally to files).
-    """
-    import asyncio
-
-    # Use export_dir if specified, otherwise only save to DB
-    if export_dir is None and not save_to_db:
-        from hireme.config import cfg
-
-        export_dir = cfg.job_offers_dir
-
-    asyncio.run(
-        _find_jobs(
-            query=job,
-            mode=mode,
-            export_dir=export_dir,
-            location=location,
-            max_results_per_source=max_results_per_source,
-            save_to_db=save_to_db,
+) -> None:
+    """Find job postings and extract their structured details."""
+    if mode == "scrapper":
+        console.print("[yellow]'scrapper' is deprecated; use 'scraper'.[/yellow]")
+        mode = "scraper"
+    try:
+        successes, total = asyncio.run(
+            _find_jobs(
+                query=job,
+                location=location,
+                max_results_per_source=max_results_per_source,
+                mode=mode,
+                save_to_db=save_to_db,
+                export_dir=export_dir,
+            )
         )
+    except LLMConfigurationError as error:
+        raise typer.BadParameter(str(error)) from error
+    if successes == 0:
+        raise typer.Exit(code=1)
+    console.print(
+        Panel(f"Completed: {successes}/{total} jobs extracted", style="green")
     )
 
 
@@ -62,113 +63,129 @@ async def _find_jobs(
     query: str,
     location: str,
     max_results_per_source: int,
-    mode: Literal["scrapper", "testing"],
+    mode: Literal["scraper", "testing"],
     save_to_db: bool,
     export_dir: Path | None,
-):
-    """Find jobs and optionally save to database."""
-    from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn, TextColumn, track
-
+) -> tuple[int, int]:
     from hireme.agents.job_agent import (
         SAMPLE_POSTING,
+        ExtractionFailed,
         JobDetails,
         extract_job,
     )
-    from hireme.scraper import get_job_page_async, get_job_urls_async
+    from hireme.scraper import JobSearchResult, get_job_pages_async, search_jobs_async
 
     console.print(Panel(f"Job Search - Mode: {mode}", style="bold blue"))
+    if mode == "testing":
+        search_results = [
+            JobSearchResult(
+                url="sample://posting",
+                title="Senior Python Developer",
+                company="FinTech Startup",
+                location="Paris",
+                source="manual",
+            )
+        ]
+        contents = {"sample://posting": SAMPLE_POSTING}
+    else:
+        search_results = await search_jobs_async(
+            query,
+            location=location,
+            max_results_per_source=max_results_per_source,
+        )
+        contents = await get_job_pages_async([result.url for result in search_results])
 
-    job_offers: list[dict[str, str]] = []
+    postings = [
+        (result, content)
+        for result in search_results
+        if (content := contents.get(result.url))
+    ]
+    if not postings:
+        console.print("[red]No readable job postings found.[/red]")
+        return 0, len(search_results)
+
+    semaphore = asyncio.Semaphore(3)
+
+    async def extract_one(
+        result: JobSearchResult, content: str
+    ) -> tuple[JobSearchResult, str, JobDetails | ExtractionFailed]:
+        async with semaphore:
+            try:
+                extracted = await extract_job(content)
+            except AgentRunError as error:
+                extracted = ExtractionFailed(reason=str(error))
+            return result, content, extracted
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         transient=True,
     ) as progress:
-        if mode == "testing":
-            console.print(
-                Panel("Using sample job posting for extraction.", style="yellow")
+        task = progress.add_task("Extracting job details", total=len(postings))
+        extracted_jobs = []
+        for future in asyncio.as_completed(
+            [extract_one(result, content) for result, content in postings]
+        ):
+            extracted_jobs.append(await future)
+            progress.advance(task)
+
+    db = None
+    if save_to_db:
+        from hireme.db import get_db
+
+        db = get_db()
+    if export_dir is None and not save_to_db:
+        from hireme.config import cfg
+
+        export_dir = cfg.job_offers_dir
+
+    successes = 0
+    for search_result, content, extracted in extracted_jobs:
+        if isinstance(extracted, ExtractionFailed):
+            console.print(f"[red]✗ Extraction failed: {extracted.reason}[/red]")
+            continue
+        successes += 1
+        console.print(
+            f"[green]✓ Extracted: {extracted.title} @ {extracted.company.name}[/green]"
+        )
+        if db:
+            from hireme.db import JobSource
+
+            sources = {
+                "indeed": JobSource.INDEED,
+                "wttj": JobSource.WELCOME_TO_THE_JUNGLE,
+                "manual": JobSource.MANUAL,
+            }
+            job_offer = db.add_job_offer(
+                title=extracted.title,
+                company_name=extracted.company.name,
+                url=search_result.url if search_result.source != "manual" else None,
+                source=sources.get(search_result.source, JobSource.OTHER),
+                location=extracted.location,
+                raw_text=content,
             )
-            job_offers = [{"url": "sample_url", "content": SAMPLE_POSTING}]
-        else:
-            console.print(Panel("Fetching live job postings...", style="yellow"))
-            job_urls = await get_job_urls_async(
-                query, location=location, max_results_per_source=max_results_per_source
+            db.mark_job_processed(job_offer.id, extracted.model_dump(mode="json"))
+            console.print(f"[dim]  → Saved to database (ID: {job_offer.id})[/dim]")
+
+        if export_dir:
+            from hireme.utils.common import (
+                safe_filename_component,
+                write_job_offer_to_json,
             )
-            console.print(f"Found {len(job_urls)} job URLs to process.")
 
-            # for i, url in track(
-            #     enumerate(job_urls),
-            #     total=len(job_urls),
-            #     description="Fetching job postings...",
-            # ):
-            progress.add_task("Fetching job postings...", total=len(job_urls))
-            for url in job_urls:
-                job_posting = await get_job_page_async(url)
-                if job_posting:
-                    job_offers.append({"url": url, "content": job_posting})
-
-            # Process and extract job details
-            if save_to_db:
-                from hireme.db import get_db
-
-                db = get_db()
-            else:
-                db = None
-            results_count = 0
-
-            task = progress.add_task("Extracting job details...", total=len(job_offers))
-
-            # for posting in track(job_offers, description="Extracting job details..."):
-            logger.info(f"Processing {len(job_offers)} job postings")
-            for posting in job_offers:
-                # progress.advance(task)
-                url = posting.get("url", "")
-                content = posting["content"]
-
-                result = await extract_job(content)
-
-                if isinstance(result, JobDetails):
-                    results_count += 1
-                    console.print(
-                        f"[green]✓ Extracted: {result.title} @ {result.company.name}[/green]"
-                    )
-
-                    # Save to database
-                    if db:
-                        from hireme.db import JobSource
-
-                        job = db.add_job_offer(
-                            title=result.title,
-                            company_name=result.company.name,
-                            url=url if url != "sample_url" else None,
-                            source=JobSource.INDEED,  # TODO: detect source from URL
-                            location=result.location,
-                            raw_text=content,
-                        )
-                        db.mark_job_processed(job.id, result.model_dump())
-                        console.print(
-                            f"[dim]  → Saved to database (ID: {job.id})[/dim]"
-                        )
-
-                    # Legacy: save to files
-                    if export_dir:
-                        from hireme.utils.common import write_job_offer_to_json
-
-                        processed_dir = export_dir / "processed"
-                        raw_dir = export_dir / "raw"
-                        processed_dir.mkdir(parents=True, exist_ok=True)
-                        raw_dir.mkdir(parents=True, exist_ok=True)
-
-                        write_job_offer_to_json(url, result.model_dump(), processed_dir)
-                        raw_filename = f"job_{result.title}-{result.company.name}.txt"
-                        (raw_dir / raw_filename).write_text(content)
-                else:
-                    console.print(f"[red]✗ Extraction failed: {result.reason}[/red]")
-
-            console.print(
-                Panel(
-                    f"Completed: {results_count}/{len(job_offers)} jobs extracted",
-                    style="green" if results_count > 0 else "red",
+            processed_dir = export_dir / "processed"
+            raw_dir = export_dir / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            write_job_offer_to_json(
+                search_result.url, extracted.model_dump(mode="json"), processed_dir
+            )
+            filename = "-".join(
+                (
+                    safe_filename_component(extracted.title),
+                    safe_filename_component(extracted.company.name),
                 )
             )
+            (raw_dir / f"{filename}.txt").write_text(content, encoding="utf-8")
+
+    logger.info("Job search completed", successes=successes, total=len(postings))
+    return successes, len(postings)

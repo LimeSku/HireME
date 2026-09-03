@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 
 
@@ -90,3 +92,14 @@ class GenerationFailed(BaseModel):
     """When resume generation fails."""
 
     reason: str = Field(..., description="Why generation failed")
+
+
+class ResumeGenerationResult(BaseModel):
+    """Resume artifact and the metadata needed for persistence."""
+
+    resume: TailoredResume
+    yaml_path: Path
+    pdf_path: Path
+    model_used: str
+    tokens_used: int
+    duration_seconds: float

@@ -1,10 +1,12 @@
 import subprocess
+import sys
 from pathlib import Path
 
 import structlog
 import yaml
 
 from hireme.config import cfg
+from hireme.utils.common import safe_filename_component
 from hireme.utils.models.resume_models import TailoredResume
 
 logger = structlog.get_logger(logger_name=__name__)
@@ -16,8 +18,6 @@ logger = structlog.get_logger(logger_name=__name__)
 
 RENDERCV_ASSETS_DIR = cfg.assets_dir / "rendercv"
 DESIGN_TEMPLATE_PATH = RENDERCV_ASSETS_DIR / "design.yaml"
-DEFAULT_PROFILE_DIR = cfg.default_profile_dir
-
 # =============================================================================
 # Resume Generation Functions
 # =============================================================================
@@ -109,8 +109,7 @@ def convert_to_rendercv_yaml(resume: TailoredResume) -> dict:
 
 def load_design_template() -> dict:
     """Load the design template from the assets directory."""
-    with open(DESIGN_TEMPLATE_PATH, "r") as f:
-        design_data = yaml.safe_load(f)
+    design_data = yaml.safe_load(DESIGN_TEMPLATE_PATH.read_text(encoding="utf-8"))
     logger.info("Loaded RenderCV design template", path=str(DESIGN_TEMPLATE_PATH))
     return design_data or {}
 
@@ -121,10 +120,11 @@ def generate_rendercv_input(resume: TailoredResume, output_dir: Path) -> Path:
     design_data = load_design_template()
     complete_data = {**cv_data, **design_data}
 
-    safe_name = resume.name.replace(" ", "_").lower()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = safe_filename_component(resume.name).lower()
     output_file = output_dir / f"{safe_name}_cv.yaml"
 
-    with open(output_file, "w") as f:
+    with output_file.open("w", encoding="utf-8") as f:
         yaml.dump(
             complete_data,
             f,
@@ -143,6 +143,8 @@ def run_rendercv(yaml_path: Path, output_dir: Path | None = None) -> Path:
         output_dir = yaml_path.parent
 
     cmd = [
+        sys.executable,
+        "-m",
         "rendercv",
         "render",
         str(yaml_path.absolute()),
@@ -163,13 +165,13 @@ def run_rendercv(yaml_path: Path, output_dir: Path | None = None) -> Path:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logger.debug("RenderCV stdout", output=result.stdout)
 
-        pdf_files = list((output_dir).glob("*.pdf"))
-        if pdf_files:
-            pdf_path = pdf_files[0]
+        pdf_path = output_dir / f"{yaml_path.stem}.pdf"
+        if pdf_path.is_file():
             logger.info("Resume PDF generated", path=str(pdf_path))
             return pdf_path
-        else:
-            raise FileNotFoundError("RenderCV did not generate a PDF file")
+        raise FileNotFoundError(
+            f"RenderCV did not generate the expected PDF: {pdf_path}"
+        )
 
     except subprocess.CalledProcessError as e:
         logger.error("RenderCV failed", stderr=e.stderr, stdout=e.stdout)
