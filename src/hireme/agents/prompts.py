@@ -25,3 +25,12 @@ class SystemPrompts:
         )
         logger.debug("Loaded custom job agent system prompt")
         return prompt
+
+    @staticmethod
+    @lru_cache(maxsize=2)
+    def match_agent_system_prompt() -> str:
+        prompt = (cfg.prompts_dir / "match_agent_system_prompt.md").read_text(
+            encoding="utf-8"
+        )
+        logger.debug("Loaded match agent system prompt")
+        return prompt
