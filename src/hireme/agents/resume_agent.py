@@ -45,7 +45,7 @@ def _validate_resume(
     }
     for field, expected in immutable_fields.items():
         actual = getattr(output, field)
-        if actual and actual != expected:
+        if actual is not None and actual != expected:
             raise ModelRetry(f"Resume field '{field}' must exactly match the profile.")
 
     source = ctx.deps.source_text().casefold()

@@ -99,3 +99,24 @@ def test_resume_validator_rejects_invented_numbers() -> None:
 
     with pytest.raises(ModelRetry, match="numbers absent"):
         _validate_resume(MagicMock(deps=context), resume)
+
+
+def test_resume_validator_rejects_blank_required_identity() -> None:
+    context = UserContext(
+        profile=CandidateProfile(
+            name="Ada Lovelace", email="ada@example.com", location="Paris"
+        ),
+        files=[],
+    )
+    resume = TailoredResume(
+        name="",
+        email="ada@example.com",
+        location="Paris",
+        education=[],
+        experience=[],
+        projects=[],
+        skills=[],
+    )
+
+    with pytest.raises(ModelRetry, match="name"):
+        _validate_resume(MagicMock(deps=context), resume)
