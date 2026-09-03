@@ -69,6 +69,7 @@ def test_profile_loading_is_recursive_and_rejects_traversal(tmp_path) -> None:
         "experience/analytical-engine.md",
         "profile.yaml",
     }
+    assert context.model_dump_json().count("Analytical Engine project") == 1
     with pytest.raises(ValueError):
         validate_profile_name("../escape")
 

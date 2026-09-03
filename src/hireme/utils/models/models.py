@@ -27,7 +27,6 @@ class UserContext(BaseModel):
     """Complete, source-backed candidate context."""
 
     profile: CandidateProfile
-    context_note: str = ""
     files: list[FileContent] = Field(default_factory=list)
 
     def source_text(self) -> str:

@@ -67,10 +67,7 @@ def load_yaml_content(file_path: Path) -> tuple[str, dict[str, Any]]:
     return raw_content, parsed
 
 
-def load_user_context_from_directory(
-    profile_dir: Path,
-    context_note_filename: str = "context.md",
-) -> UserContext:
+def load_user_context_from_directory(profile_dir: Path) -> UserContext:
     """Load and validate a complete candidate profile directory."""
     if not profile_dir.is_dir():
         raise FileNotFoundError(f"Profile directory not found: {profile_dir}")
@@ -97,7 +94,6 @@ def load_user_context_from_directory(
         raise ValueError(f"Missing required profile fields: {', '.join(missing)}")
 
     files: list[FileContent] = []
-    context_note = ""
     for file_path in sorted(path for path in profile_dir.rglob("*") if path.is_file()):
         extension = file_path.suffix.lower()
         if extension not in SUPPORTED_PROFILE_EXTENSIONS:
@@ -115,16 +111,9 @@ def load_user_context_from_directory(
         files.append(
             FileContent(filename=relative_name, file_type=file_type, content=content)
         )
-        if relative_name == context_note_filename:
-            context_note = content
-
-    if not context_note:
-        context_note = "\n\n---\n\n".join(
-            file.content for file in files if file.file_type == "markdown"
-        )
 
     logger.info("Loaded user context", total_files=len(files))
-    return UserContext(profile=profile, context_note=context_note, files=files)
+    return UserContext(profile=profile, files=files)
 
 
 def write_job_offer_to_json(url: str, data: dict[str, Any], export_dir: Path) -> Path:
