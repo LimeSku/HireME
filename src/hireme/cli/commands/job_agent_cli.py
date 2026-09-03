@@ -40,8 +40,8 @@ def job_agent(
         console.print("[yellow]'scrapper' is deprecated; use 'scraper'.[/yellow]")
         mode = "scraper"
     try:
-        successes, total = asyncio.run(
-            _find_jobs(
+        successes, total, _, _ = asyncio.run(
+            find_jobs(
                 query=job,
                 location=location,
                 max_results_per_source=max_results_per_source,
@@ -59,19 +59,19 @@ def job_agent(
     )
 
 
-async def _find_jobs(
+async def find_jobs(
     query: str,
     location: str,
     max_results_per_source: int,
     mode: Literal["scraper", "testing"],
     save_to_db: bool,
     export_dir: Path | None,
-) -> tuple[int, int]:
+) -> tuple[int, int, list[int], int]:
     from hireme.agents.job_agent import (
         SAMPLE_POSTING,
         ExtractionFailed,
         JobDetails,
-        extract_job,
+        extract_job_with_usage,
     )
     from hireme.scraper import JobSearchResult, get_job_pages_async, search_jobs_async
 
@@ -102,19 +102,20 @@ async def _find_jobs(
     ]
     if not postings:
         console.print("[red]No readable job postings found.[/red]")
-        return 0, len(search_results)
+        return 0, len(search_results), [], 0
 
     semaphore = asyncio.Semaphore(3)
 
     async def extract_one(
         result: JobSearchResult, content: str
-    ) -> tuple[JobSearchResult, str, JobDetails | ExtractionFailed]:
+    ) -> tuple[JobSearchResult, str, JobDetails | ExtractionFailed, int]:
         async with semaphore:
             try:
-                extracted = await extract_job(content)
+                extracted, tokens = await extract_job_with_usage(content)
             except AgentRunError as error:
                 extracted = ExtractionFailed(reason=str(error))
-            return result, content, extracted
+                tokens = 0
+            return result, content, extracted, tokens
 
     with Progress(
         SpinnerColumn(),
@@ -140,7 +141,10 @@ async def _find_jobs(
         export_dir = cfg.job_offers_dir
 
     successes = 0
-    for search_result, content, extracted in extracted_jobs:
+    job_ids: list[int] = []
+    tokens_used = 0
+    for search_result, content, extracted, tokens in extracted_jobs:
+        tokens_used += tokens
         if isinstance(extracted, ExtractionFailed):
             console.print(f"[red]✗ Extraction failed: {extracted.reason}[/red]")
             continue
@@ -165,6 +169,7 @@ async def _find_jobs(
                 raw_text=content,
             )
             db.mark_job_processed(job_offer.id, extracted.model_dump(mode="json"))
+            job_ids.append(job_offer.id)
             console.print(f"[dim]  → Saved to database (ID: {job_offer.id})[/dim]")
 
         if export_dir:
@@ -188,4 +193,4 @@ async def _find_jobs(
             (raw_dir / f"{filename}.txt").write_text(content, encoding="utf-8")
 
     logger.info("Job search completed", successes=successes, total=len(postings))
-    return successes, len(postings)
+    return successes, len(postings), list(dict.fromkeys(job_ids)), tokens_used
