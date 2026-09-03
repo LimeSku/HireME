@@ -1,198 +1,146 @@
 import json
+import re
 from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 import yaml
+from pydantic import ValidationError
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
-from hireme.utils.models.models import FileContent, UserContext
+from hireme.utils.models.models import CandidateProfile, FileContent, UserContext
 
 logger = structlog.get_logger(logger_name=__name__)
 
+SUPPORTED_PROFILE_EXTENSIONS = {".pdf", ".md", ".txt", ".yaml", ".yml"}
+TRACKING_QUERY_KEYS = {"fbclid", "gclid", "msclkid"}
 
-# =============================================================================
-# File Loading Functions
-# =============================================================================
+
+def safe_filename_component(value: str, fallback: str = "unknown") -> str:
+    """Return a bounded filename component without path traversal characters."""
+    cleaned = re.sub(r"[^\w.-]+", "_", value, flags=re.UNICODE).strip("._")
+    return cleaned[:100] or fallback
+
+
+def normalize_url(url: str) -> str:
+    """Normalize a URL while preserving parameters that may identify the resource."""
+    parts = urlsplit(url.strip())
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_")
+            and key.lower() not in TRACKING_QUERY_KEYS
+        ]
+    )
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, "")
+    )
 
 
 def load_pdf_content(file_path: Path) -> str:
-    """Extract text content from a PDF file.
-
-    Requires pypdf or pdfplumber to be installed.
-    """
+    """Extract text from a PDF profile document."""
     try:
-        # Try pypdf first (lighter weight)
-        from pypdf import PdfReader
-
         reader = PdfReader(file_path)
-        text_parts = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                text_parts.append(text)
-        return "\n\n".join(text_parts)
-    except ImportError:
-        pass
-
-    try:
-        # Try pdfplumber as fallback
-        import pdfplumber
-
-        with pdfplumber.open(file_path) as pdf:
-            text_parts = []
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    text_parts.append(text)
-            return "\n\n".join(text_parts)
-    except ImportError:
-        logger.warning(
-            "No PDF library available. Install pypdf or pdfplumber to read PDFs.",
-            file=str(file_path),
+        return "\n\n".join(
+            text for page in reader.pages if (text := page.extract_text())
         )
-        return f"[PDF content could not be extracted: {file_path.name}]"
+    except (OSError, PdfReadError) as error:
+        raise ValueError(f"Unable to read PDF profile file: {file_path}") from error
 
 
 def load_text_content(file_path: Path) -> str:
-    """Load content from a text or markdown file."""
     return file_path.read_text(encoding="utf-8")
 
 
-def load_yaml_content(file_path: Path) -> tuple[str, dict]:
-    """Load content from a YAML file, return both raw and parsed."""
+def load_yaml_content(file_path: Path) -> tuple[str, dict[str, Any]]:
+    """Load a YAML mapping and preserve its raw representation."""
     raw_content = file_path.read_text(encoding="utf-8")
     try:
-        parsed = yaml.safe_load(raw_content)
-        return raw_content, parsed or {}
-    except yaml.YAMLError as e:
-        logger.warning("Failed to parse YAML", file=str(file_path), error=str(e))
-        return raw_content, {}
+        parsed = yaml.safe_load(raw_content) or {}
+    except yaml.YAMLError as error:
+        raise ValueError(f"Invalid YAML file: {file_path}") from error
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Expected a YAML mapping in: {file_path}")
+    return raw_content, parsed
 
 
 def load_user_context_from_directory(
     profile_dir: Path,
     context_note_filename: str = "context.md",
-    # profile_filename: str = "profile.yaml",
 ) -> UserContext:
-    """Load user context from a directory containing various files.
-
-    Args:
-        profile_dir: Path to the directory containing user files
-        context_note_filename: Name of the main context note file (md or txt)
-        profile_filename: Name of the structured profile YAML file
-
-    Returns:
-        UserContext with all loaded information
-
-    Directory structure expected:
-        profile_dir/
-            context.md          # Main context note (detailed background)
-            profile.yaml        # Structured personal info (optional)
-            resume.pdf          # Existing resume PDF (optional)
-            projects.md         # Project descriptions (optional)
-            experience.md       # Work experience details (optional)
-            education.md        # Education details (optional)
-            skills.txt          # Skills list (optional)
-            *.pdf               # Any other PDF files
-            *.md                # Any other markdown files
-            *.txt               # Any other text files
-    """
-    if not profile_dir.exists():
+    """Load and validate a complete candidate profile directory."""
+    if not profile_dir.is_dir():
         raise FileNotFoundError(f"Profile directory not found: {profile_dir}")
+
+    profile_path = profile_dir / "profile.yaml"
+    if not profile_path.is_file():
+        raise FileNotFoundError(f"Required profile file not found: {profile_path}")
+
+    _, profile_data = load_yaml_content(profile_path)
+    raw_profile = profile_data.get("profile")
+    if not isinstance(raw_profile, dict):
+        raise ValueError(f"Missing 'profile' mapping in: {profile_path}")
+    try:
+        profile = CandidateProfile.model_validate(raw_profile)
+    except ValidationError as error:
+        raise ValueError(f"Invalid candidate profile: {profile_path}") from error
+
+    missing = [
+        field
+        for field in ("name", "email", "location")
+        if not getattr(profile, field).strip()
+    ]
+    if missing:
+        raise ValueError(f"Missing required profile fields: {', '.join(missing)}")
 
     files: list[FileContent] = []
     context_note = ""
-    personal_info = {}
-
-    # Supported file extensions
-    supported_extensions = {".pdf", ".md", ".txt", ".yaml", ".yml"}
-
-    # Load all supported files
-    for file_path in profile_dir.iterdir():
-        logger.debug("Inspecting file", file=file_path.name)
-        if not file_path.is_file():
+    for file_path in sorted(path for path in profile_dir.rglob("*") if path.is_file()):
+        extension = file_path.suffix.lower()
+        if extension not in SUPPORTED_PROFILE_EXTENSIONS:
             continue
+        if extension == ".pdf":
+            content, file_type = load_pdf_content(file_path), "pdf"
+        elif extension in {".yaml", ".yml"}:
+            content, _ = load_yaml_content(file_path)
+            file_type = "yaml"
+        else:
+            content = load_text_content(file_path)
+            file_type = "markdown" if extension == ".md" else "text"
 
-        ext = file_path.suffix.lower()
-        if ext not in supported_extensions:
-            logger.debug("Skipping unsupported file", file=file_path.name)
-            continue
-
-        logger.info("Loading file", file=file_path.name, type=ext)
-
-        try:
-            if ext == ".pdf":
-                content = load_pdf_content(file_path)
-                file_type = "pdf"
-            elif ext in {".yaml", ".yml"}:
-                content, parsed = load_yaml_content(file_path)
-                file_type = "yaml"
-
-                # Extract personal info from profile.yaml
-            else:
-                content = load_text_content(file_path)
-                file_type = "markdown" if ext == ".md" else "text"
-
-                # Check if this is the main context note
-                if file_path.name == context_note_filename:
-                    context_note = content
-
-            files.append(
-                FileContent(
-                    filename=file_path.name,
-                    file_type=file_type,
-                    content=content,
-                )
-            )
-
-        except Exception as e:
-            logger.error("Failed to load file", file=file_path.name, error=str(e))
-            continue
-
-    # If no explicit context note, use all markdown files as context
-    if not context_note:
-        md_contents = [f.content for f in files if f.file_type == "markdown"]
-        context_note = "\n\n---\n\n".join(md_contents)
-
-    logger.info(
-        "Loaded user context",
-        total_files=len(files),
-        has_context_note=bool(context_note),
-        has_personal_info=bool(personal_info.get("name")),
-    )
-
-    # should parse user context from context.md
-    return UserContext(
-        # name=personal_info.get("name", ""),
-        # email=personal_info.get("email", ""),
-        # phone=personal_info.get("phone"),
-        # location=personal_info.get("location", ""),
-        # linkedin_username=personal_info.get("linkedin_username", ""),
-        # github_username=personal_info.get("github_username", ""),
-        # website=personal_info.get("website", ""),
-        # files=files,
-        context_note=context_note,
-    )
-
-
-def write_job_offer_to_json(url: str, data: dict, export_dir: Path) -> None:
-    """Export result data to a JSON file.
-
-    Args:
-        url: Source URL of the job offer
-        data: Data to export
-        export_dir: Directory to save the output files
-    """
-    export_dir.mkdir(parents=True, exist_ok=True)
-    export_path = (
-        export_dir
-        / f"{data.get('title')}-{data.get('company', {'name': ''}).get('name', '')}.json"
-    )
-    try:
-        with export_path.open("w", encoding="utf-8") as f:
-            export_data = {"url": url, "data": data}
-            json.dump(export_data, f, indent=2, ensure_ascii=False)
-        logger.info("Exported result data", path=str(export_path))
-    except Exception as e:
-        logger.error(
-            "Failed to export result data", path=str(export_path), error=str(e)
+        relative_name = str(file_path.relative_to(profile_dir))
+        files.append(
+            FileContent(filename=relative_name, file_type=file_type, content=content)
         )
+        if relative_name == context_note_filename:
+            context_note = content
+
+    if not context_note:
+        context_note = "\n\n---\n\n".join(
+            file.content for file in files if file.file_type == "markdown"
+        )
+
+    logger.info("Loaded user context", total_files=len(files))
+    return UserContext(profile=profile, context_note=context_note, files=files)
+
+
+def write_job_offer_to_json(url: str, data: dict[str, Any], export_dir: Path) -> Path:
+    """Export one structured job offer and return its path."""
+    export_dir.mkdir(parents=True, exist_ok=True)
+    company = data.get("company") or {}
+    filename = "-".join(
+        (
+            safe_filename_component(str(data.get("title", "unknown"))),
+            safe_filename_component(str(company.get("name", "unknown"))),
+        )
+    )
+    export_path = export_dir / f"{filename}.json"
+    export_path.write_text(
+        json.dumps({"url": url, "data": data}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("Exported result data", path=str(export_path))
+    return export_path
