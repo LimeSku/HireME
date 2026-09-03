@@ -64,6 +64,15 @@ class JobSource(StrEnum):
     OTHER = "other"
 
 
+class WorkflowStatus(StrEnum):
+    """Lifecycle of an orchestrated application workflow."""
+
+    RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 # =============================================================================
 # SQLAlchemy Models
 # =============================================================================
@@ -230,6 +239,67 @@ class Application(Base):
 
     def __repr__(self) -> str:
         return f"<Application(id={self.id}, job_id={self.job_offer_id}, status='{self.status}')>"
+
+
+class WorkflowRun(Base):
+    """Durable state for one end-to-end agentic workflow."""
+
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    profile_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    query: Mapped[str] = mapped_column(String(500), nullable=False)
+    location: Mapped[str] = mapped_column(String(500), nullable=False)
+    mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    max_results_per_source: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False
+    )
+    output_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50), default=WorkflowStatus.RUNNING.value, nullable=False
+    )
+    job_offer_ids: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
+    matches: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    selected_job_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("job_offers.id"), nullable=True
+    )
+    pdf_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, onupdate=datetime.now, nullable=False
+    )
+    steps: Mapped[list["WorkflowStep"]] = relationship(
+        "WorkflowStep",
+        back_populates="workflow_run",
+        cascade="all, delete-orphan",
+        order_by="WorkflowStep.id",
+    )
+
+
+class WorkflowStep(Base):
+    """Completed or failed stage in a workflow timeline."""
+
+    __tablename__ = "workflow_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workflow_runs.id"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, nullable=False
+    )
+    workflow_run: Mapped[WorkflowRun] = relationship(
+        "WorkflowRun", back_populates="steps"
+    )
 
 
 # =============================================================================
@@ -525,6 +595,118 @@ class DatabaseManager:
                 .filter(Application.status == status.value)
                 .all()
             )
+
+    # =========================================================================
+    # Workflow Operations
+    # =========================================================================
+
+    def create_workflow_run(
+        self,
+        *,
+        profile_name: str,
+        profile_path: str,
+        query: str,
+        location: str,
+        mode: str,
+        max_results_per_source: int,
+        output_dir: str,
+    ) -> WorkflowRun:
+        with self.get_session() as session:
+            workflow = WorkflowRun(
+                profile_name=profile_name,
+                profile_path=profile_path,
+                query=query,
+                location=location,
+                mode=mode,
+                max_results_per_source=max_results_per_source,
+                output_dir=output_dir,
+            )
+            session.add(workflow)
+            session.commit()
+            session.refresh(workflow)
+            return workflow
+
+    def get_workflow_run(self, workflow_id: int) -> WorkflowRun | None:
+        with self.get_session() as session:
+            workflow = (
+                session.query(WorkflowRun)
+                .options(selectinload(WorkflowRun.steps))
+                .filter(WorkflowRun.id == workflow_id)
+                .first()
+            )
+            if workflow:
+                session.expunge_all()
+            return workflow
+
+    def list_workflow_runs(self, limit: int = 20) -> list[WorkflowRun]:
+        with self.get_session() as session:
+            workflows = (
+                session.query(WorkflowRun)
+                .options(selectinload(WorkflowRun.steps))
+                .order_by(WorkflowRun.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            session.expunge_all()
+            return workflows
+
+    def update_workflow_run(
+        self,
+        workflow_id: int,
+        *,
+        status: WorkflowStatus | None = None,
+        job_offer_ids: list[int] | None = None,
+        matches: list[dict] | None = None,
+        selected_job_id: int | None = None,
+        pdf_path: str | None = None,
+        tokens_used: int | None = None,
+        error: str | None = None,
+    ) -> WorkflowRun:
+        with self.get_session() as session:
+            workflow = session.get(WorkflowRun, workflow_id)
+            if workflow is None:
+                raise ValueError(f"Workflow {workflow_id} does not exist.")
+            if status is not None:
+                workflow.status = status.value
+            if job_offer_ids is not None:
+                workflow.job_offer_ids = job_offer_ids
+            if matches is not None:
+                workflow.matches = matches
+            if selected_job_id is not None:
+                workflow.selected_job_id = selected_job_id
+            if pdf_path is not None:
+                workflow.pdf_path = pdf_path
+            if tokens_used is not None:
+                workflow.tokens_used = tokens_used
+            if error is not None:
+                workflow.error = error or None
+            session.commit()
+            session.refresh(workflow)
+            return workflow
+
+    def add_workflow_step(
+        self,
+        workflow_id: int,
+        *,
+        name: str,
+        status: str,
+        duration_seconds: float,
+        detail: str | None = None,
+    ) -> WorkflowStep:
+        with self.get_session() as session:
+            if session.get(WorkflowRun, workflow_id) is None:
+                raise ValueError(f"Workflow {workflow_id} does not exist.")
+            step = WorkflowStep(
+                workflow_run_id=workflow_id,
+                name=name,
+                status=status,
+                duration_seconds=duration_seconds,
+                detail=detail,
+            )
+            session.add(step)
+            session.commit()
+            session.refresh(step)
+            return step
 
     def get_application_stats(self) -> dict:
         """Get statistics about applications."""

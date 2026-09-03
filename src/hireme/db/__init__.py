@@ -7,6 +7,9 @@ from hireme.db.database import (
     GeneratedResume,
     JobOffer,
     JobSource,
+    WorkflowRun,
+    WorkflowStatus,
+    WorkflowStep,
     get_db,
 )
 
@@ -17,5 +20,8 @@ __all__ = [
     "GeneratedResume",
     "JobOffer",
     "JobSource",
+    "WorkflowRun",
+    "WorkflowStatus",
+    "WorkflowStep",
     "get_db",
 ]
