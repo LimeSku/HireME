@@ -179,6 +179,7 @@ async def get_job_pages_async(urls: list[str]) -> dict[str, str | None]:
             urls,
             max_concurrent=3,
             use_cache=True,
+            wait_selectors={url: _get_wait_selector(url) for url in urls},
         )
         # Clean all results
         return {

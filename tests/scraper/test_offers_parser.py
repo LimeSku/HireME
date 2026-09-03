@@ -219,20 +219,31 @@ class TestGetJobPagesAsync:
 
     async def test_returns_dict_of_results(self):
         """Test that results are returned as a dictionary."""
+        urls = [
+            "https://www.indeed.com/job/1",
+            "https://example.com/job2",
+        ]
         with patch(
             "hireme.scraper.offers_parser.get_multiple_pages"
         ) as mock_get_multiple:
             mock_get_multiple.return_value = {
-                "https://example.com/job1": "Content 1",
+                "https://www.indeed.com/job/1": "Content 1",
                 "https://example.com/job2": "Content 2",
             }
 
-            results = await get_job_pages_async(
-                ["https://example.com/job1", "https://example.com/job2"]
-            )
+            results = await get_job_pages_async(urls)
 
             assert isinstance(results, dict)
             assert len(results) == 2
+            mock_get_multiple.assert_awaited_once_with(
+                urls,
+                max_concurrent=3,
+                use_cache=True,
+                wait_selectors={
+                    "https://www.indeed.com/job/1": "#jobDescriptionText",
+                    "https://example.com/job2": None,
+                },
+            )
 
     async def test_cleans_content_in_results(self):
         """Test that content in results is cleaned."""

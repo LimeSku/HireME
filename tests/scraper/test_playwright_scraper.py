@@ -390,6 +390,22 @@ class TestGetMultiplePages:
             # All 5 should complete
             assert len(call_times) == 5
 
+    async def test_uses_per_url_wait_selectors(self):
+        urls = ["https://example.com/one", "https://example.com/two"]
+        with patch(
+            "hireme.scraper.playwright_scraper.get_page_content",
+            new_callable=AsyncMock,
+            return_value="content",
+        ) as get_content:
+            await get_multiple_pages(
+                urls,
+                wait_selector="main",
+                wait_selectors={urls[0]: "#job-description"},
+            )
+
+        selectors = {call.args[0]: call.args[1] for call in get_content.await_args_list}
+        assert selectors == {urls[0]: "#job-description", urls[1]: "main"}
+
 
 # =============================================================================
 # Integration-style Tests (with mocked browser)

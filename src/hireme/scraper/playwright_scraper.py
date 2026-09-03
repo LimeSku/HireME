@@ -337,6 +337,7 @@ async def get_multiple_pages(
     timeout: int = 15000,
     max_concurrent: int = 3,
     use_cache: bool = True,
+    wait_selectors: dict[str, str | None] | None = None,
 ) -> dict[str, str | None]:
     """Fetch multiple pages concurrently with rate limiting.
 
@@ -346,6 +347,7 @@ async def get_multiple_pages(
         timeout: Timeout per page in milliseconds
         max_concurrent: Maximum concurrent requests
         use_cache: Whether to use URL cache
+        wait_selectors: Optional selector override for each URL
 
     Returns:
         Dictionary mapping URLs to their content
@@ -355,9 +357,12 @@ async def get_multiple_pages(
 
     async def fetch_one(url: str) -> None:
         async with semaphore:
-            results[url] = await get_page_content(
-                url, wait_selector, timeout, use_cache
+            selector = (
+                wait_selectors.get(url, wait_selector)
+                if wait_selectors
+                else wait_selector
             )
+            results[url] = await get_page_content(url, selector, timeout, use_cache)
 
     # Deduplicate URLs
     unique_urls = list(dict.fromkeys(urls))
